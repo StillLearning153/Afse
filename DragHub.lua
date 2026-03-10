@@ -2082,18 +2082,33 @@ elseif game.PlaceId == SAILOR_ID then
         local maxHealth = humanoid.MaxHealth
         if maxHealth <= 0 then return end
 
+        -- Snapshot health RIGHT NOW as the baseline — only count damage WE deal from this point
+        local baselineHealth = humanoid.Health
+        local triggered = false
+
         local conn
         conn = humanoid.HealthChanged:Connect(function(currentHealth)
+            if triggered then return end
             if not instantKillEnabled then
-                pcall(function() conn:Disconnect() end)
+                triggered = true
+                task.defer(function() pcall(function() conn:Disconnect() end) end)
                 return
             end
-            if maxHealth <= 0 then return end
-            local damagePct = ((maxHealth - currentHealth) / maxHealth) * 100
+            -- Only measure damage from our baseline snapshot, not from maxHealth
+            -- This prevents pre-existing damage from other players triggering it
+            if currentHealth >= baselineHealth then
+                -- Health went up (regen) — update baseline so we measure from here
+                baselineHealth = currentHealth
+                return
+            end
+            local damagePct = ((baselineHealth - currentHealth) / maxHealth) * 100
             if damagePct >= 15 then
-                pcall(function() humanoid.Health = 0 end)
-                pcall(function() conn:Disconnect() end)
-                instantKillTracked[bossModel] = nil
+                triggered = true
+                task.defer(function()
+                    pcall(function() humanoid.Health = 0 end)
+                    pcall(function() conn:Disconnect() end)
+                    instantKillTracked[bossModel] = nil
+                end)
             end
         end)
         table.insert(instantKillConnections, conn)
@@ -4452,18 +4467,33 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
         local maxHealth = humanoid.MaxHealth
         if maxHealth <= 0 then return end
 
+        -- Snapshot health RIGHT NOW as the baseline — only count damage WE deal from this point
+        local baselineHealth = humanoid.Health
+        local triggered = false
+
         local conn
         conn = humanoid.HealthChanged:Connect(function(currentHealth)
+            if triggered then return end
             if not instantKillEnabled then
-                pcall(function() conn:Disconnect() end)
+                triggered = true
+                task.defer(function() pcall(function() conn:Disconnect() end) end)
                 return
             end
-            if maxHealth <= 0 then return end
-            local damagePct = ((maxHealth - currentHealth) / maxHealth) * 100
+            -- Only measure damage from our baseline snapshot, not from maxHealth
+            -- This prevents pre-existing damage from other players triggering it
+            if currentHealth >= baselineHealth then
+                -- Health went up (regen) — update baseline so we measure from here
+                baselineHealth = currentHealth
+                return
+            end
+            local damagePct = ((baselineHealth - currentHealth) / maxHealth) * 100
             if damagePct >= 15 then
-                pcall(function() humanoid.Health = 0 end)
-                pcall(function() conn:Disconnect() end)
-                instantKillTracked[bossModel] = nil
+                triggered = true
+                task.defer(function()
+                    pcall(function() humanoid.Health = 0 end)
+                    pcall(function() conn:Disconnect() end)
+                    instantKillTracked[bossModel] = nil
+                end)
             end
         end)
         table.insert(instantKillConnections, conn)
