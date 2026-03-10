@@ -8,7 +8,7 @@ local Players           = game:GetService("Players")
 local RunService        = game:GetService("RunService")
 local LocalPlayer       = Players.LocalPlayer
 
-local AFS_ID      = 130247632398296
+local AFS_ID      = 9266873836
 local SAILOR_ID   = 77747658251236
 local DUNGEON_GID = 9186719164       -- GameId (same across all places in the game)
 local DUNGEON_PID = 75159314259063   -- PlaceId (specific dungeon place)
