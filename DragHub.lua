@@ -9,6 +9,7 @@ local RunService        = game:GetService("RunService")
 local LocalPlayer       = Players.LocalPlayer
 
 local AFS_GID     = 9266873836       -- AFS Endless GameId
+local AFS_PID     = 130247632398296  -- AFS Endless PlaceId
 local SAILOR_ID   = 77747658251236   -- Sailor Piece PlaceId
 local DUNGEON_GID = 9186719164       -- Sailor Dungeon GameId
 local DUNGEON_PID = 75159314259063   -- Sailor Dungeon PlaceId
@@ -40,7 +41,7 @@ local windowConfig = {
 -- ║              ANIME FIGHTING SIMULATOR                ║
 -- ╚══════════════════════════════════════════════════════╝
 
-if game.GameId == AFS_GID or game.PlaceId == AFS_GID then
+if game.GameId == AFS_GID or game.PlaceId == AFS_PID then
 
     local AFSRemote = nil
     pcall(function()
