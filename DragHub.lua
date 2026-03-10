@@ -8,10 +8,10 @@ local Players           = game:GetService("Players")
 local RunService        = game:GetService("RunService")
 local LocalPlayer       = Players.LocalPlayer
 
-local AFS_ID      = 9266873836
-local SAILOR_ID   = 77747658251236
-local DUNGEON_GID = 9186719164       -- GameId (same across all places in the game)
-local DUNGEON_PID = 75159314259063   -- PlaceId (specific dungeon place)
+local AFS_GID     = 9266873836       -- AFS Endless GameId
+local SAILOR_ID   = 77747658251236   -- Sailor Piece PlaceId
+local DUNGEON_GID = 9186719164       -- Sailor Dungeon GameId
+local DUNGEON_PID = 75159314259063   -- Sailor Dungeon PlaceId
 print("[DRAG HUB] PlaceId:", game.PlaceId, "| GameId:", game.GameId)
 
 local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
@@ -40,7 +40,7 @@ local windowConfig = {
 -- ║              ANIME FIGHTING SIMULATOR                ║
 -- ╚══════════════════════════════════════════════════════╝
 
-if game.PlaceId == AFS_ID then
+if game.GameId == AFS_GID or game.PlaceId == AFS_GID then
 
     local AFSRemote = nil
     pcall(function()
