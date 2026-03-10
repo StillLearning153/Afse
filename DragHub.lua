@@ -8,59 +8,12 @@ local Players           = game:GetService("Players")
 local RunService        = game:GetService("RunService")
 local LocalPlayer       = Players.LocalPlayer
 
-local AFS_ID      = 130247632398296
-local SAILOR_ID   = 77747658251236
-local DUNGEON_GID = 9186719164       -- GameId (same across all places in the game)
-local DUNGEON_PID = 75159314259063   -- PlaceId (specific dungeon place)
+local SAILOR_ID   = 77747658251236   -- Sailor Piece PlaceId
+local DUNGEON_GID = 9186719164       -- Sailor Dungeon GameId
+local DUNGEON_PID = 75159314259063   -- Sailor Dungeon PlaceId
 print("[DRAG HUB] PlaceId:", game.PlaceId, "| GameId:", game.GameId)
 
--- ── Custom Loading Screen ─────────────────────────────────────────────────────
-
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name             = "DragHubLoader"
-screenGui.IgnoreGuiInset   = true
-screenGui.ResetOnSpawn     = false
-screenGui.ZIndexBehavior   = Enum.ZIndexBehavior.Sibling
-screenGui.Parent           = game:GetService("CoreGui")
-
--- Dark red background with 50% opacity
-local bg = Instance.new("Frame")
-bg.Size            = UDim2.new(1, 0, 1, 0)
-bg.Position        = UDim2.new(0, 0, 0, 0)
-bg.BackgroundColor3 = Color3.fromRGB(80, 0, 0)
-bg.BackgroundTransparency = 0.5
-bg.BorderSizePixel = 0
-bg.ZIndex          = 1
-bg.Parent          = screenGui
-
--- "DRAG HUB" bold label
-local label = Instance.new("TextLabel")
-label.Size                  = UDim2.new(1, 0, 0, 80)
-label.Position              = UDim2.new(0, 0, 0.42, 0)
-label.BackgroundTransparency = 1
-label.Text                  = "DRAG HUB"
-label.TextColor3            = Color3.fromRGB(255, 255, 255)
-label.TextScaled            = true
-label.Font                  = Enum.Font.GothamBold
-label.ZIndex                = 2
-label.Parent                = screenGui
-
--- Subtitle
-local sub = Instance.new("TextLabel")
-sub.Size                  = UDim2.new(1, 0, 0, 30)
-sub.Position              = UDim2.new(0, 0, 0.56, 0)
-sub.BackgroundTransparency = 1
-sub.Text                  = "Loading..."
-sub.TextColor3            = Color3.fromRGB(200, 200, 200)
-sub.TextScaled            = true
-sub.Font                  = Enum.Font.Gotham
-sub.ZIndex                = 2
-sub.Parent                = screenGui
-
 local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
-
--- Destroy our custom loader now that Rayfield has taken over
-screenGui:Destroy()
 
 local windowConfig = {
     Icon            = 0,
@@ -86,7 +39,7 @@ local windowConfig = {
 -- ║              ANIME FIGHTING SIMULATOR                ║
 -- ╚══════════════════════════════════════════════════════╝
 
-if game.PlaceId == AFS_ID then
+if game.PlaceId ~= SAILOR_ID and game.GameId ~= DUNGEON_GID and game.PlaceId ~= DUNGEON_PID then
 
     local AFSRemote = nil
     pcall(function()
@@ -136,7 +89,7 @@ if game.PlaceId == AFS_ID then
 
     -- UI setup
     windowConfig.Name            = "DRAG HUB | AFS Endless"
-    windowConfig.LoadingTitle    = "<b>DRAG HUB</b>"
+    windowConfig.LoadingTitle    = "DRAG HUB"
     windowConfig.LoadingSubtitle = "Anime Fighting Simulator Endless"
 
     local Window = Rayfield:CreateWindow(windowConfig)
@@ -152,7 +105,7 @@ if game.PlaceId == AFS_ID then
     for _, s in ipairs(statSections) do
         AFSTab:CreateSection(s.icon .. " " .. s.name)
         local toggle = AFSTab:CreateToggle({
-            Name = "Auto Farm " .. s.name, CurrentValue = false,
+            Name = "Auto Farm " .. s.name, CurrentValue = false, Flag = s.name .. "Toggle",
             Callback = function(val)
                 if val then
                     for n, t in pairs(afsToggles) do if n ~= s.name then t:Set(false) end end
@@ -177,6 +130,268 @@ if game.PlaceId == AFS_ID then
         end,
     })
 
+    -- ╔══════════════════════════════════════════════════════╗
+    -- ║              AFS — BOSS TAB (KURAMA)                 ║
+    -- ╚══════════════════════════════════════════════════════╝
+
+    local BossTab = Window:CreateTab("Boss Farm", 4483362458)
+
+    -- ── Remotes ──
+    local AFSRemoteFunction = nil
+    pcall(function()
+        AFSRemoteFunction = ReplicatedStorage
+            :WaitForChild("shared",          10)
+            :WaitForChild("Remotes",         10)
+            :WaitForChild("RemoteFunction",  10)
+    end)
+
+    -- ── State ──
+    local bossFarmEnabled  = false
+    local bossFarmThread   = nil
+    local bossHoverThread  = nil
+    local afsPowerEnabled  = false
+    local afsPowerThread   = nil
+
+    -- ── Boss path ──
+    local function getKuramaHum()
+        local arena = workspace:FindFirstChild("Scriptable")
+        arena = arena and arena:FindFirstChild("BossArena")
+        arena = arena and arena:FindFirstChild("Demon Fox")
+        local hum = arena and arena:FindFirstChildOfClass("Humanoid")
+        return hum
+    end
+
+    local function getKuramaRoot()
+        local arena = workspace:FindFirstChild("Scriptable")
+        arena = arena and arena:FindFirstChild("BossArena")
+        arena = arena and arena:FindFirstChild("Demon Fox")
+        local root = arena and arena:FindFirstChild("HumanoidRootPart")
+        return root
+    end
+
+    -- ── Fly system (same as Sailor Piece) ──
+    local FLY_HEIGHT_AFS   = 9
+    local FLY_SMOOTHNESS_AFS = 60
+    local FLY_DISTANCE_AFS = 2.5
+    local ORBIT_RADIUS_AFS = 2
+    local ORBIT_SPEED_AFS  = 2
+
+    local afsHoverConn     = nil
+    local afsFlyPart       = nil
+    local afsFlyAP         = nil
+    local afsFlyAO         = nil
+    local afsFlyAtt0       = nil
+    local afsFlyAtt1       = nil
+
+    local function afsStopFly()
+        if afsHoverConn then afsHoverConn:Disconnect() afsHoverConn = nil end
+        if afsFlyAP    then afsFlyAP:Destroy()    afsFlyAP    = nil end
+        if afsFlyAO    then afsFlyAO:Destroy()    afsFlyAO    = nil end
+        if afsFlyAtt0  then afsFlyAtt0:Destroy()  afsFlyAtt0  = nil end
+        if afsFlyAtt1  then afsFlyAtt1:Destroy()  afsFlyAtt1  = nil end
+        if afsFlyPart  then afsFlyPart:Destroy()  afsFlyPart  = nil end
+        local c = LocalPlayer.Character
+        local hum = c and c:FindFirstChildOfClass("Humanoid")
+        if hum then hum.PlatformStand = false hum.AutoRotate = true end
+    end
+
+    local function afsFlyAbove(targetRoot)
+        if not targetRoot or not targetRoot.Parent then return end
+        local c   = LocalPlayer.Character
+        local hrp = c and c:FindFirstChild("HumanoidRootPart")
+        local hum = c and c:FindFirstChildOfClass("Humanoid")
+        if not hrp or not hum then return end
+
+        hum.PlatformStand = true
+        hum.AutoRotate    = false
+
+        if not afsFlyPart then
+            afsFlyPart = Instance.new("Part")
+            afsFlyPart.Size        = Vector3.new(1,1,1)
+            afsFlyPart.Transparency = 1
+            afsFlyPart.Anchored    = false
+            afsFlyPart.CanCollide  = false
+            afsFlyPart.CanQuery    = false
+            afsFlyPart.CanTouch    = false
+            afsFlyPart.CFrame      = CFrame.new(targetRoot.Position + Vector3.new(0, FLY_HEIGHT_AFS, 0))
+            afsFlyPart.Parent      = workspace
+
+            afsFlyAtt0 = Instance.new("Attachment", hrp)
+            afsFlyAtt1 = Instance.new("Attachment", afsFlyPart)
+
+            afsFlyAP = Instance.new("AlignPosition")
+            afsFlyAP.Attachment0    = afsFlyAtt0
+            afsFlyAP.Attachment1    = afsFlyAtt1
+            afsFlyAP.Mode           = Enum.PositionAlignmentMode.TwoAttachment
+            afsFlyAP.MaxForce       = 1e9
+            afsFlyAP.MaxVelocity    = 100
+            afsFlyAP.Responsiveness = FLY_SMOOTHNESS_AFS
+            afsFlyAP.Parent         = hrp
+
+            afsFlyAO = Instance.new("AlignOrientation")
+            afsFlyAO.Attachment0          = afsFlyAtt0
+            afsFlyAO.Mode                 = Enum.OrientationAlignmentMode.OneAttachment
+            afsFlyAO.RigidityEnabled       = false
+            afsFlyAO.ReactionTorqueEnabled = false
+            afsFlyAO.MaxTorque             = 1e9
+            afsFlyAO.Responsiveness        = 40
+            afsFlyAO.Parent                = hrp
+
+            if afsHoverConn then afsHoverConn:Disconnect() end
+            afsHoverConn = RunService.Heartbeat:Connect(function()
+                local root = getKuramaRoot()
+                if not root or not afsFlyPart then return end
+                local t = tick() * ORBIT_SPEED_AFS
+                local orbitOffset = Vector3.new(math.cos(t) * ORBIT_RADIUS_AFS, 0, math.sin(t) * ORBIT_RADIUS_AFS)
+                local targetPos = root.Position + Vector3.new(0, FLY_HEIGHT_AFS, 0)
+                    + (root.CFrame.LookVector * -FLY_DISTANCE_AFS) + orbitOffset
+                local dist = (afsFlyPart.Position - targetPos).Magnitude
+                local alpha = math.clamp(dist / 25, 0.12, 0.35)
+                afsFlyPart.CFrame = CFrame.new(afsFlyPart.Position:Lerp(targetPos, alpha))
+                if afsFlyAO then
+                    local lookTarget = root.Position - Vector3.new(0, 4, 0)
+                    afsFlyAO.CFrame = afsFlyAO.CFrame:Lerp(CFrame.lookAt(hrp.Position, lookTarget), 0.35)
+                end
+            end)
+        end
+    end
+
+    -- ── UseSpecialPower fire ──
+    local function fireSpecialPower()
+        if not AFSRemoteFunction then return end
+        local c   = LocalPlayer.Character
+        local hrp = c and c:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+        local bossRoot = getKuramaRoot()
+        local targetCF = bossRoot and bossRoot.CFrame or hrp.CFrame
+        local targetPos = bossRoot and bossRoot.Position or hrp.Position
+        pcall(function()
+            AFSRemoteFunction:InvokeServer(
+                "UseSpecialPower",
+                "Z",
+                {
+                    MouseCF  = targetCF,
+                    MouseHit = "Mobile",
+                    MousePos = Vector3.new(targetPos.X, targetPos.Y, targetPos.Z),
+                }
+            )
+        end)
+    end
+
+    -- ── Auto power loop ──
+    local function startAfsPower()
+        if afsPowerThread then task.cancel(afsPowerThread) afsPowerThread = nil end
+        afsPowerThread = task.spawn(function()
+            while afsPowerEnabled do
+                fireSpecialPower()
+                task.wait(0.1)
+            end
+        end)
+    end
+
+    -- ── Boss farm loop ──
+    local function stopAfsBossFarm()
+        bossFarmEnabled = false
+        afsPowerEnabled = false
+        if bossFarmThread  then task.cancel(bossFarmThread)  bossFarmThread  = nil end
+        if afsPowerThread  then task.cancel(afsPowerThread)  afsPowerThread  = nil end
+        afsStopFly()
+    end
+
+    local function startAfsBossFarm()
+        if bossFarmThread then task.cancel(bossFarmThread) bossFarmThread = nil end
+        bossFarmEnabled = true
+        bossFarmThread = task.spawn(function()
+            while bossFarmEnabled do
+                local hum  = getKuramaHum()
+                local root = getKuramaRoot()
+
+                if not hum or not root then
+                    -- Boss not spawned — hover in place and wait
+                    afsStopFly()
+                    Rayfield:Notify({ Title = "Boss Farm", Content = "Waiting for Kurama to spawn...", Duration = 3, Image = 4483362458 })
+                    task.wait(2)
+                else
+                    -- Fly above boss
+                    afsFlyAbove(root)
+
+                    -- Auto-detect health drop → instant kill via power spam
+                    local lastHealth = hum.MaxHealth
+                    while bossFarmEnabled do
+                        local curHum  = getKuramaHum()
+                        local curRoot = getKuramaRoot()
+                        if not curHum or not curRoot then break end
+
+                        -- Health decreased → fire power
+                        if curHum.Health < lastHealth or curHum.Health > 0 then
+                            lastHealth = curHum.Health
+                            if afsPowerEnabled then
+                                fireSpecialPower()
+                            end
+                            -- Also use M1
+                            pcall(function()
+                                if AFSRemote then AFSRemote:FireServer("Train", 1) end
+                            end)
+                        end
+
+                        afsFlyAbove(curRoot)
+                        task.wait(0.08)
+                    end
+                    afsStopFly()
+                end
+            end
+        end)
+    end
+
+    -- ── UI ──
+    BossTab:CreateSection("👹 Kurama Boss")
+
+    BossTab:CreateLabel({
+        Name = "Boss Path: workspace.Scriptable.BossArena[Demon Fox]"
+    })
+
+    BossTab:CreateToggle({
+        Name = "⚔ Auto Farm Kurama", CurrentValue = false, Flag = "AfsBossFarmToggle",
+        Callback = function(val)
+            if val then
+                startAfsBossFarm()
+                Rayfield:Notify({ Title = "Boss Farm", Content = "Farming Kurama!", Duration = 3, Image = 4483362458 })
+            else
+                stopAfsBossFarm()
+                Rayfield:Notify({ Title = "Boss Farm", Content = "Stopped.", Duration = 3, Image = 4483362458 })
+            end
+        end,
+    })
+
+    BossTab:CreateDivider()
+    BossTab:CreateSection("✨ Auto Powers")
+
+    BossTab:CreateToggle({
+        Name = "🔮 Auto Use Special Power (Z)", CurrentValue = false, Flag = "AfsPowerToggle",
+        Callback = function(val)
+            afsPowerEnabled = val
+            if val then
+                startAfsPower()
+                Rayfield:Notify({ Title = "Auto Power", Content = "Spamming Z power!", Duration = 3, Image = 4483362458 })
+            else
+                if afsPowerThread then task.cancel(afsPowerThread) afsPowerThread = nil end
+                Rayfield:Notify({ Title = "Auto Power", Content = "Power spam stopped.", Duration = 3, Image = 4483362458 })
+            end
+        end,
+    })
+
+    BossTab:CreateDivider()
+    BossTab:CreateSection("⚙ Controls")
+
+    BossTab:CreateButton({
+        Name = "Stop All Boss Farm",
+        Callback = function()
+            stopAfsBossFarm()
+            Rayfield:Notify({ Title = "DRAG HUB", Content = "Boss farm stopped.", Duration = 3, Image = 4483362458 })
+        end,
+    })
+
+    Rayfield:LoadConfiguration()
 
 elseif game.PlaceId == SAILOR_ID then
 
@@ -285,9 +500,7 @@ elseif game.PlaceId == SAILOR_ID then
         { npc = "QuestNPC12", mob = "StrongSorcerer", minLvl = 6250, maxLvl = 6999  },
         { npc = "QuestNPC13", mob = "Curse",          minLvl = 7000, maxLvl = 7999  },
         { npc = "QuestNPC14", mob = "Slime",          minLvl = 8000, maxLvl = 8999  },
-        { npc = "QuestNPC15", mob = "AcademyTeacher", minLvl = 9000,  maxLvl = 9999  },
-        { npc = "QuestNPC16", mob = "Swordsman",       minLvl = 10000, maxLvl = 10750 },
-        { npc = "QuestNPC17", mob = "Quincy",           minLvl = 10750, maxLvl = 99999 },
+        { npc = "QuestNPC15", mob = "AcademyTeacher", minLvl = 9000, maxLvl = 10000 },
     }
 
     local mobCoords = {
@@ -306,34 +519,11 @@ elseif game.PlaceId == SAILOR_ID then
         ["Curse"]          = Vector3.new( -41.328,    1.907,  -1816.006),
         ["Slime"]          = Vector3.new(-1144.351,  19.703,    364.112),
         ["AcademyTeacher"] = Vector3.new(1074.662,    2.370,   1250.483),
-        ["Swordsman"]      = Vector3.new(-1268.647,   1.306,  -1161.301),
-        ["Quincy"]         = Vector3.new(-1331.364, 1603.621, 1567.672),
-    }
-
-    -- Island each mob/boss belongs to (for TeleportRemote before CFrame tp)
-    local mobIsland = {
-        ["Thief"]          = "Starter",
-        ["ThiefBoss"]      = "Starter",
-        ["Monkey"]         = "Jungle",
-        ["MonkeyBoss"]     = "Jungle",
-        ["DesertBandit"]   = "Desert",
-        ["DesertBoss"]     = "Desert",
-        ["FrostRogue"]     = "Snow",
-        ["SnowBoss"]       = "Snow",
-        ["Sorcerer"]       = "Sailor",
-        ["PandaMiniBoss"]  = "Sailor",
-        ["Hollow"]         = "HuecoMundo",
-        ["StrongSorcerer"] = "Shibuya",
-        ["Curse"]          = "Shibuya",
-        ["Slime"]          = "Slime",
-        ["AcademyTeacher"] = "Academy",
-        ["Swordsman"]      = "Judgement",
-        ["Quincy"]         = "SoulSociety",
     }
 
     local mobList = {
         "Thief", "Monkey", "DesertBandit", "FrostRogue",
-        "Sorcerer", "Hollow", "StrongSorcerer", "Curse", "Slime", "AcademyTeacher", "Swordsman", "Quincy",
+        "Sorcerer", "Hollow", "StrongSorcerer", "Curse", "Slime", "AcademyTeacher",
     }
 
     local bossList = { "ThiefBoss", "MonkeyBoss", "DesertBoss", "SnowBoss", "PandaMiniBoss" }
@@ -341,10 +531,6 @@ elseif game.PlaceId == SAILOR_ID then
     local bosses = {
         ThiefBoss = true, MonkeyBoss = true, DesertBoss    = true,
         SnowBoss  = true, PandaMiniBoss = true,
-        -- All regular bossList entries — exact name match, no numbered suffix
-        Swordsman = true, AcademyTeacher = true, Slime = true,
-        Curse = true, StrongSorcerer = true, Hollow = true,
-        PandaMiniBoss = true, Sorcerer = true, SnowBoss = true,
     }
 
     local skillKeys = {
@@ -369,6 +555,7 @@ elseif game.PlaceId == SAILOR_ID then
     local levelEnabled      = false
     local upgradeEnabled    = false
     local autoSummonEnabled = false
+
     local mobThread        = nil
     local bossThread       = nil
     local skillThread      = nil
@@ -404,6 +591,7 @@ elseif game.PlaceId == SAILOR_ID then
     end
 
     local function startFlyAbove(targetRoot)
+        if not farmMovementEnabled() then return end
         local character = LocalPlayer.Character
         if not character then return end
         local hrp = character:FindFirstChild("HumanoidRootPart")
@@ -482,6 +670,7 @@ elseif game.PlaceId == SAILOR_ID then
     end
 
     local function updateFlyTarget(targetRoot)
+        if not farmMovementEnabled() then stopFly() return end
         if not targetRoot or not targetRoot.Parent then return end
         if not flyTargetPart then startFlyAbove(targetRoot) end
     end
@@ -499,7 +688,19 @@ elseif game.PlaceId == SAILOR_ID then
         end
     end
 
+    local function isFarming()
+        return mobEnabled or bossEnabled or levelEnabled
+            or specialBossEnabled or summonFarmEnabled or dungeonKillEnabled
+    end
+
+    local function farmMovementEnabled()
+        return mobEnabled or bossEnabled or levelEnabled
+            or specialBossEnabled or summonFarmEnabled or dungeonKillEnabled
+    end
+    end
+
     local function flyAbove(targetRoot)
+        if not isFarming() then stopFly() return end
         if currentFlyRoot ~= targetRoot then
             currentFlyRoot = targetRoot
             startFlyAbove(targetRoot)
@@ -592,23 +793,17 @@ elseif game.PlaceId == SAILOR_ID then
     local lastTeleportedMob = ""
 
     local function teleportForMob(mobName)
+        if not farmMovementEnabled() then return end
         if mobName == lastTeleportedMob then return end
         local coords = mobCoords[mobName]
         if not coords then return end
         local c   = LocalPlayer.Character
         local hrp = c and c:FindFirstChild("HumanoidRootPart")
         if not hrp then return end
-        -- Fire island teleport first so the server loads the right area
-        local island = mobIsland[mobName]
-        if island and TeleportRemote then
-            pcall(function() TeleportRemote:FireServer(island) end)
-            task.wait(1.5)
-        end
-        -- Then CFrame snap to exact mob location
         hrp.CFrame        = CFrame.new(coords + Vector3.new(0, 5, 0))
         lastTeleportedMob = mobName
-        Rayfield:Notify({ Title = "Teleport", Content = "Moved to " .. mobName .. " (" .. (island or "?") .. ")!", Duration = 2, Image = 4483362458 })
-        task.wait(0.5)
+        Rayfield:Notify({ Title = "Teleport", Content = "Moved to " .. mobName .. "!", Duration = 2, Image = 4483362458 })
+        task.wait(1)
     end
 
     local function getAllMobs(exactName)
@@ -619,11 +814,9 @@ elseif game.PlaceId == SAILOR_ID then
         local function searchFolder(folder)
             for _, mob in pairs(folder:GetChildren()) do
                 if mob:IsA("Model") then
-                    -- For bosses: exact name match only
-                    -- For mobs: numbered suffix match (e.g. "Thief1", "Thief2")
-                    -- Fallback: also accept exact name for anything (catches bosses not in bosses table)
-                    local matches = (mob.Name == exactName)
-                        or (not isBoss and mob.Name:match("^" .. escaped .. "%d+$") ~= nil)
+                    local matches = isBoss
+                        and (mob.Name == exactName)
+                        or  (mob.Name:match("^" .. escaped .. "%d+$") ~= nil)
                     if matches then
                         local hum  = mob:FindFirstChildOfClass("Humanoid")
                         local root = mob:FindFirstChild("HumanoidRootPart")
@@ -642,6 +835,7 @@ elseif game.PlaceId == SAILOR_ID then
     end
 
     local function snapNearTarget(root, maxDist)
+        if not farmMovementEnabled() then return end
         local c   = LocalPlayer.Character
         local hrp = c and c:FindFirstChild("HumanoidRootPart")
         if not hrp or not root then return end
@@ -653,6 +847,7 @@ elseif game.PlaceId == SAILOR_ID then
 
     -- Keep player floating at current height when no mobs are nearby
     local function hoverInPlace()
+        if not farmMovementEnabled() then return end
         if flyTargetPart then return end -- already flying via main system, don't interfere
         local c   = LocalPlayer.Character
         local hrp = c and c:FindFirstChild("HumanoidRootPart")
@@ -690,6 +885,7 @@ elseif game.PlaceId == SAILOR_ID then
 
     local function killMob(mob)
         if not mob then return false end
+        if not farmMovementEnabled() then return false end
         local root   = mob:FindFirstChild("HumanoidRootPart")
         local mobHum = mob:FindFirstChildOfClass("Humanoid")
         if not root or not mobHum or mobHum.Health <= 0 then return false end
@@ -699,8 +895,9 @@ elseif game.PlaceId == SAILOR_ID then
         repeat
             task.wait(0.1)
             t += 0.1
+            if not farmMovementEnabled() then stopFly() return false end
             flyAbove(root)
-        until mobHum.Health <= 0 or not mobEnabled or t > 30 or not isAlive()
+        until mobHum.Health <= 0 or not mobEnabled or not farmMovementEnabled() or t > 30 or not isAlive()
         stopFly()
         task.wait(0.1)
         return mobHum.Health <= 0
@@ -729,7 +926,6 @@ elseif game.PlaceId == SAILOR_ID then
         { name = "JinwooBoss",  pos = Vector3.new( 248.738,  7.594,  927.545), island = "Sailor"     },
         { name = "SukunaBoss",  pos = Vector3.new(1571.267, 80.221,  -34.113), island = "Shibuya"    },
         { name = "YujiBoss",    pos = Vector3.new(1537.929, 12.986,  226.108), island = "Shibuya"    },
-        { name = "YamatoBoss",  pos = Vector3.new(-1422.681, 21.471, -1383.469), island = "Judgement"  },
     }
 
     local chatKeywordToBoss = {
@@ -737,7 +933,6 @@ elseif game.PlaceId == SAILOR_ID then
         ["Gojo"]   = "GojoBoss",    ["Jinwoo"]  = "JinwooBoss",
         ["Madoka"] = "MadokaBoss",  ["Ragna"]   = "RagnaBoss",
         ["Sukuna"] = "SukunaBoss",  ["Yuji"]    = "YujiBoss",
-        ["Yamato"] = "YamatoBoss",
     }
 
     local selectedSpecialBosses  = {}
@@ -786,36 +981,19 @@ elseif game.PlaceId == SAILOR_ID then
 
     local function resumePreviousFarming()
         lastTeleportedMob = ""
-        local didResume = false
-        if resumeAfterBoss.mob then
-            mobEnabled = true
-            startMob()
-            didResume = true
-        end
-        if resumeAfterBoss.boss then
-            bossEnabled = true
-            startBoss()
-            didResume = true
-        end
-        if resumeAfterBoss.level then
-            levelEnabled = true
-            startLevel()
-            didResume = true
-        end
+        -- Only resume if the mob/boss/level thread is not already running
+        if resumeAfterBoss.mob   and not mobThread   then mobEnabled   = true startMob()   end
+        if resumeAfterBoss.boss  and not bossThread  then bossEnabled  = true startBoss()  end
+        if resumeAfterBoss.level and not levelThread then levelEnabled = true startLevel() end
         if noclipNeeded() then startNoclip() end
         resumeAfterBoss = { mob = false, boss = false, level = false }
-        if didResume then
-            Rayfield:Notify({ Title = "Boss Farm", Content = "Resumed previous farming!", Duration = 3, Image = 4483362458 })
-        end
     end
 
     local function fightDetectedBoss(bossName)
-        -- Save what was running before the boss interrupted
         resumeAfterBoss.mob   = resumeAfterBoss.mob   or mobEnabled
         resumeAfterBoss.boss  = resumeAfterBoss.boss  or bossEnabled
         resumeAfterBoss.level = resumeAfterBoss.level or levelEnabled
 
-        -- Stop all current farming immediately
         if mobEnabled   then mobEnabled   = false if mobThread   then task.cancel(mobThread)   mobThread   = nil end end
         if bossEnabled  then bossEnabled  = false if bossThread  then task.cancel(bossThread)  bossThread  = nil end end
         if levelEnabled then levelEnabled = false if levelThread then task.cancel(levelThread) levelThread = nil end end
@@ -826,68 +1004,46 @@ elseif game.PlaceId == SAILOR_ID then
         for _, d in ipairs(specialBossData) do
             if d.name == bossName then bossData = d break end
         end
-        if not bossData then
-            -- Unknown boss — still resume whatever was running before
-            resumePreviousFarming()
-            return
-        end
+        if not bossData then return end
 
-        Rayfield:Notify({ Title = "⚡ Boss!", Content = "Going to " .. bossName .. " (" .. (bossData.island or "?") .. ")...", Duration = 4, Image = 4483362458 })
+        Rayfield:Notify({ Title = "⚡ Boss!", Content = "Going to " .. bossName .. "...", Duration = 4, Image = 4483362458 })
 
-        -- Fire island teleport first, then CFrame snap to boss position
-        if bossData.island and TeleportRemote then
-            pcall(function() TeleportRemote:FireServer(bossData.island) end)
-            task.wait(0.5)
-        end
         local c   = LocalPlayer.Character
         local hrp = c and c:FindFirstChild("HumanoidRootPart")
         if hrp then
             hrp.CFrame = CFrame.new(bossData.pos + Vector3.new(0, FLY_HEIGHT, 0))
-            task.wait(0.3)
+            task.wait(1)
         end
 
-        local model, root, hum = waitForBossModel(bossName, 5)
+        local model, root, hum = waitForBossModel(bossName, 10)
         if not model then
-            -- Boss not found or already dead — resume previous farming
-            Rayfield:Notify({ Title = "Boss Farm", Content = bossName .. " not found, resuming...", Duration = 3, Image = 4483362458 })
-            resumePreviousFarming()
+            Rayfield:Notify({ Title = "Boss Farm", Content = bossName .. " not found.", Duration = 3, Image = 4483362458 })
             return
         end
-
-        startNoclip()
 
         while specialBossEnabled do
             if not isAlive() then
                 stopFly()
                 waitForCharacter()
-                if not specialBossEnabled then break end
                 equipWeapon()
-                task.wait(0.3)
-                -- Re-teleport back to boss area after death
                 local c2   = LocalPlayer.Character
                 local hrp2 = c2 and c2:FindFirstChild("HumanoidRootPart")
-                if hrp2 then
+                if hrp2 and (hrp2.Position - bossData.pos).Magnitude > 200 then
                     hrp2.CFrame = CFrame.new(bossData.pos + Vector3.new(0, FLY_HEIGHT, 0))
-                    task.wait(0.3)
+                    task.wait(0.5)
                 end
-                startNoclip()
-                -- Wait for boss to reappear (it may respawn)
-                model, root, hum = waitForBossModel(bossName, 5)
-                if not model then
-                    -- Boss gone after our death — resume farming
-                    Rayfield:Notify({ Title = "Boss Farm", Content = bossName .. " gone after death, resuming...", Duration = 3, Image = 4483362458 })
-                    break
-                end
+                model, root, hum = waitForBossModel(bossName, 8)
+                if not model then break end
             end
 
             model, root, hum = getBossModel(bossName)
             if not model then
-                -- Boss defeated!
-                Rayfield:Notify({ Title = "Boss Farm", Content = bossName .. " defeated! Resuming farming...", Duration = 3, Image = 4483362458 })
+                Rayfield:Notify({ Title = "Boss Farm", Content = bossName .. " defeated!", Duration = 3, Image = 4483362458 })
                 break
             end
 
             snapNearTarget(root, 120)
+            startNoclip()
             flyAbove(root)
 
             repeat
@@ -899,14 +1055,8 @@ elseif game.PlaceId == SAILOR_ID then
             stopFly()
         end
 
-        stopFly()
         stopNoclip()
-
-        -- Always resume previous farming when done with this boss
-        -- Even if specialBoss was toggled off mid-fight, restore what was running before
-        if #specialBossQueue > 0 and specialBossEnabled then
-            -- More bosses queued — don't resume yet, let the queue handle it
-        else
+        if specialBossEnabled and #specialBossQueue == 0 then
             resumePreviousFarming()
         end
     end
@@ -947,14 +1097,10 @@ elseif game.PlaceId == SAILOR_ID then
             end
         end)
 
-        -- Scan for bosses already present in workspace when loop starts
         local NPCs = workspace:FindFirstChild("NPCs")
         if NPCs then
-            for _, npc in ipairs(NPCs:GetChildren()) do
-                if isSelectedBoss(npc.Name) then
-                    local hum = npc:FindFirstChildOfClass("Humanoid")
-                    if hum and hum.Health > 0 then addToQueue(npc.Name) end
-                end
+            for _, npc in pairs(NPCs:GetChildren()) do
+                if isSelectedBoss(npc.Name) then addToQueue(npc.Name) end
             end
             local conn = NPCs.ChildAdded:Connect(function(npc)
                 if specialBossEnabled and isSelectedBoss(npc.Name) then addToQueue(npc.Name) end
@@ -967,7 +1113,7 @@ elseif game.PlaceId == SAILOR_ID then
                 if #specialBossQueue > 0 then
                     fightDetectedBoss(table.remove(specialBossQueue, 1))
                 else
-                    task.wait(0.2)
+                    task.wait(1)
                 end
             end
         end)
@@ -1066,7 +1212,7 @@ elseif game.PlaceId == SAILOR_ID then
                                 task.wait(0.1)
                                 t += 0.1
                                 flyAbove(root)
-                            until mobHum.Health <= 0 or not getEnabled() or t > 120 or not isAlive() or getMobName() ~= mobName
+                            until mobHum.Health <= 0 or not getEnabled() or t > 20 or not isAlive() or getMobName() ~= mobName
                             stopFly()
                             task.wait(0.1)
                         end
@@ -1074,7 +1220,6 @@ elseif game.PlaceId == SAILOR_ID then
                     task.wait(0.1)
                 end
             end
-            task.wait(0.3)
         end
         stopFly()
     end
@@ -1092,6 +1237,7 @@ elseif game.PlaceId == SAILOR_ID then
 
     startMob = function()
         if not mobEnabled then return end
+        if mobThread then task.cancel(mobThread) mobThread = nil end
         if autoSummonEnabled then
             autoSummonEnabled = false
             if autoSummonThread then task.cancel(autoSummonThread) autoSummonThread = nil end
@@ -1178,11 +1324,11 @@ elseif game.PlaceId == SAILOR_ID then
 
     startBoss = function()
         if not bossEnabled then return end
+        if bossThread then task.cancel(bossThread) bossThread = nil end
         startNoclip()
         bossThread = task.spawn(function()
             teleportForMob(selectedBoss)
             farmLoop(function() return bossEnabled end, function() return selectedBoss end)
-            bossThread = nil
         end)
     end
 
@@ -1199,6 +1345,7 @@ elseif game.PlaceId == SAILOR_ID then
 
     startLevel = function()
         if not levelEnabled then return end
+        if levelThread then task.cancel(levelThread) levelThread = nil end
         startNoclip()
         levelThread = task.spawn(function()
             while levelEnabled do
@@ -1268,12 +1415,8 @@ elseif game.PlaceId == SAILOR_ID then
         if upgradeEnabled     then startUpgrade() end
         if noclipNeeded()     then startNoclip()  end
         if specialBossEnabled then
-            -- Don't cancel specialBossThread here — fightDetectedBoss handles
-            -- death internally via waitForCharacter. Only restart if the thread
-            -- has actually died (e.g. crashed), not just because we respawned.
-            if not specialBossThread then
-                startSpecialBossLoop()
-            end
+            if specialBossThread then task.cancel(specialBossThread) specialBossThread = nil end
+            startSpecialBossLoop()
         end
     end)
 
@@ -1282,7 +1425,7 @@ elseif game.PlaceId == SAILOR_ID then
     -- ╚══════════════════════════════════════════════════════╝
 
     windowConfig.Name            = "DRAG HUB | Sailor Piece"
-    windowConfig.LoadingTitle    = "<b>DRAG HUB</b>"
+    windowConfig.LoadingTitle    = "DRAG HUB"
     windowConfig.LoadingSubtitle = "Sailor Piece"
 
     local Window = Rayfield:CreateWindow(windowConfig)
@@ -1340,10 +1483,39 @@ elseif game.PlaceId == SAILOR_ID then
     })
 
     SPTab:CreateDivider()
+    SPTab:CreateSection("✨ Auto Skill")
+
+    local SkillToggle = SPTab:CreateToggle({
+        Name = "Auto Skill", CurrentValue = false, Flag = "SkillToggle",
+        Callback = function(val)
+            if val then
+                if #selectedSkills == 0 then
+                    Rayfield:Notify({ Title = "Auto Skill", Content = "Select at least one skill first!", Duration = 3, Image = 4483362458 })
+                    SkillToggle:Set(false) return
+                end
+                startSkill()
+                Rayfield:Notify({ Title = "Auto Skill", Content = "Auto Skill enabled!", Duration = 3, Image = 4483362458 })
+            else
+                stopSkill()
+            end
+        end,
+    })
+
+    SPTab:CreateDropdown({
+        Name = "Select Skills",
+        Options = {"Z (Skill 1)", "X (Skill 2)", "C (Skill 3)", "V (Skill 4)", "F (Skill 5)"},
+        CurrentOption = {}, MultipleOptions = true, Flag = "SkillDropdown",
+        Callback = function(options)
+            selectedSkills = options
+            Rayfield:Notify({ Title = "Auto Skill", Content = "Skills: " .. (#options > 0 and table.concat(options, ", ") or "None"), Duration = 2, Image = 4483362458 })
+        end,
+    })
+
+    SPTab:CreateDivider()
     SPTab:CreateSection("👊 Mobs")
 
     local MobFarmToggle = SPTab:CreateToggle({
-        Name = "Auto Farm Mob", CurrentValue = false,
+        Name = "Auto Farm Mob", CurrentValue = false, Flag = "MobFarmToggle",
         Callback = function(val)
             if val then
                 if #selectedMobs == 0 then
@@ -1354,7 +1526,7 @@ elseif game.PlaceId == SAILOR_ID then
                 equipWeapon() mobEnabled = true startMob()
                 Rayfield:Notify({ Title = "Auto Mob", Content = "Farming: " .. table.concat(selectedMobs, ", "), Duration = 3, Image = 4483362458 })
             else
-                mobEnabled = false stopMob()
+                mobEnabled = false stopMob() stopFly() lastTeleportedMob = ""
                 Rayfield:Notify({ Title = "Auto Mob", Content = "Mob farm stopped.", Duration = 3, Image = 4483362458 })
             end
         end,
@@ -1385,13 +1557,13 @@ elseif game.PlaceId == SAILOR_ID then
     SPTab:CreateSection("💀 Boss")
 
     local BossFarmToggle = SPTab:CreateToggle({
-        Name = "Auto Farm Boss", CurrentValue = false,
+        Name = "Auto Farm Boss", CurrentValue = false, Flag = "BossFarmToggle",
         Callback = function(val)
             if val then
                 equipWeapon() bossEnabled = true startBoss()
                 Rayfield:Notify({ Title = "Auto Boss", Content = "Farming: " .. selectedBoss, Duration = 3, Image = 4483362458 })
             else
-                bossEnabled = false stopBoss()
+                bossEnabled = false stopBoss() stopFly() lastTeleportedMob = ""
                 Rayfield:Notify({ Title = "Auto Boss", Content = "Boss farm stopped.", Duration = 3, Image = 4483362458 })
             end
         end,
@@ -1403,10 +1575,8 @@ elseif game.PlaceId == SAILOR_ID then
         Callback = function(options)
             if options[1] then
                 selectedBoss = options[1]
-                if bossEnabled then
-                    lastTeleportedMob = ""
-                    if not bossThread then bossEnabled = true equipWeapon() startBoss() end
-                end
+                lastTeleportedMob = ""
+                if bossEnabled then stopBoss() bossEnabled = true startBoss() end
                 Rayfield:Notify({ Title = "Auto Boss", Content = "Boss: " .. selectedBoss, Duration = 2, Image = 4483362458 })
             end
         end,
@@ -1416,7 +1586,7 @@ elseif game.PlaceId == SAILOR_ID then
     SPTab:CreateSection("📈 Upgrade Stats")
 
     local UpgradeToggle = SPTab:CreateToggle({
-        Name = "Auto Upgrade Stat", CurrentValue = false,
+        Name = "Auto Upgrade Stat", CurrentValue = false, Flag = "UpgradeToggle",
         Callback = function(val)
             if val then
                 if #selectedStats == 0 then
@@ -1443,6 +1613,21 @@ elseif game.PlaceId == SAILOR_ID then
     })
 
     SPTab:CreateDivider()
+    SPTab:CreateSection("🥊 Auto M1")
+
+    SPTab:CreateToggle({
+        Name = "Auto M1 Attack", CurrentValue = false, Flag = "AutoM1Toggle",
+        Callback = function(val)
+            autoM1Enabled = val
+            if val then
+                Rayfield:Notify({ Title = "Auto M1", Content = "M1 attack enabled!", Duration = 2, Image = 4483362458 })
+            else
+                Rayfield:Notify({ Title = "Auto M1", Content = "M1 attack disabled.", Duration = 2, Image = 4483362458 })
+            end
+        end,
+    })
+
+    SPTab:CreateDivider()
     SPTab:CreateSection("⚙ Controls")
 
     SPTab:CreateButton({
@@ -1458,173 +1643,13 @@ elseif game.PlaceId == SAILOR_ID then
         end,
     })
 
-
-    -- ── TAB: PLAYER ──────────────────────────────────────────────────────────
-
-    local PlayerTab = Window:CreateTab("Player", 4483362458)
-
-    -- ── Remotes ──
-    local HakiRemote = nil
-    pcall(function()
-        HakiRemote = ReplicatedStorage
-            :WaitForChild("RemoteEvents", 10)
-            :WaitForChild("HakiRemote", 10)
-    end)
-
-    local DeathVFX = nil
-    pcall(function()
-        DeathVFX = ReplicatedStorage
-            :WaitForChild("RemoteEvents", 10)
-            :WaitForChild("DeathVFX", 10)
-    end)
-
-    local ObservationHakiRemote = nil
-    pcall(function()
-        ObservationHakiRemote = ReplicatedStorage
-            :WaitForChild("RemoteEvents", 10)
-            :WaitForChild("ObservationHakiRemote", 10)
-    end)
-
-    -- ── State ──
-    local autoHakiEnabled        = false
-    local autoObsHakiEnabled     = false
-    local obsHakiThread          = nil
-    local obsHakiDeathConnection = nil
-    local hakiDeathConnection    = nil
-
-    -- ── Section: Auto M1 ──
-    PlayerTab:CreateSection("🥊 Auto M1")
-
-    PlayerTab:CreateToggle({
-        Name = "Auto M1 Attack", CurrentValue = false, Flag = "AutoM1Toggle",
-        Callback = function(val)
-            autoM1Enabled = val
-            if val then
-                Rayfield:Notify({ Title = "Auto M1", Content = "M1 attack enabled!", Duration = 2, Image = 4483362458 })
-            else
-                Rayfield:Notify({ Title = "Auto M1", Content = "M1 attack disabled.", Duration = 2, Image = 4483362458 })
-            end
-        end,
-    })
-
-    PlayerTab:CreateDivider()
-
-    -- ── Section: Auto Skill ──
-    PlayerTab:CreateSection("✨ Auto Skill")
-
-    local SkillToggle = PlayerTab:CreateToggle({
-        Name = "Auto Skill", CurrentValue = false,
-        Callback = function(val)
-            if val then
-                if #selectedSkills == 0 then
-                    Rayfield:Notify({ Title = "Auto Skill", Content = "Select at least one skill first!", Duration = 3, Image = 4483362458 })
-                    SkillToggle:Set(false) return
-                end
-                startSkill()
-                Rayfield:Notify({ Title = "Auto Skill", Content = "Auto Skill enabled!", Duration = 3, Image = 4483362458 })
-            else
-                stopSkill()
-            end
-        end,
-    })
-
-    PlayerTab:CreateDropdown({
-        Name = "Select Skills",
-        Options = {"Z (Skill 1)", "X (Skill 2)", "C (Skill 3)", "V (Skill 4)", "F (Skill 5)"},
-        CurrentOption = {}, MultipleOptions = true, Flag = "SkillDropdown",
-        Callback = function(options)
-            selectedSkills = options
-            Rayfield:Notify({ Title = "Auto Skill", Content = "Skills: " .. (#options > 0 and table.concat(options, ", ") or "None"), Duration = 2, Image = 4483362458 })
-        end,
-    })
-
-    PlayerTab:CreateDivider()
-
-    -- ── Section: Auto Haki ──
-    PlayerTab:CreateSection("🔥 Auto Haki")
-
-    PlayerTab:CreateToggle({
-        Name = "Auto Haki", CurrentValue = false,
-        Callback = function(val)
-            autoHakiEnabled = val
-            if val then
-                -- Activate haki immediately on enable
-                pcall(function() HakiRemote:FireServer("Toggle") end)
-                -- Connect death handler: fire DeathVFX then re-toggle haki on respawn
-                if hakiDeathConnection then hakiDeathConnection:Disconnect() hakiDeathConnection = nil end
-                hakiDeathConnection = LocalPlayer.CharacterAdded:Connect(function(char)
-                    if not autoHakiEnabled then return end
-                    task.wait(1.5)
-                    pcall(function() DeathVFX:FireServer(LocalPlayer.Character) end)
-                    task.wait(0.5)
-                    pcall(function() HakiRemote:FireServer("Toggle") end)
-                end)
-                Rayfield:Notify({ Title = "Auto Haki", Content = "Haki activated! Will auto re-activate on death.", Duration = 3, Image = 4483362458 })
-            else
-                autoHakiEnabled = false
-                if hakiDeathConnection then hakiDeathConnection:Disconnect() hakiDeathConnection = nil end
-                Rayfield:Notify({ Title = "Auto Haki", Content = "Auto Haki disabled.", Duration = 2, Image = 4483362458 })
-            end
-        end,
-    })
-
-    PlayerTab:CreateDivider()
-
-    -- ── Section: Auto Observation Haki ──
-    PlayerTab:CreateSection("👁 Auto Observation Haki")
-
-    local function stopObsHaki()
-        autoObsHakiEnabled = false
-        if obsHakiThread then task.cancel(obsHakiThread) obsHakiThread = nil end
-        if obsHakiDeathConnection then obsHakiDeathConnection:Disconnect() obsHakiDeathConnection = nil end
-    end
-
-    local function startObsHaki()
-        if not autoObsHakiEnabled then return end
-        if obsHakiThread then task.cancel(obsHakiThread) obsHakiThread = nil end
-        obsHakiThread = task.spawn(function()
-            while autoObsHakiEnabled do
-                pcall(function() ObservationHakiRemote:FireServer("Toggle") end)
-                -- Wait 60 seconds, checking every second so death can reset timer
-                local waited = 0
-                while waited < 60 and autoObsHakiEnabled do
-                    task.wait(1)
-                    waited += 1
-                end
-            end
-        end)
-    end
-
-    PlayerTab:CreateToggle({
-        Name = "Auto Observation Haki", CurrentValue = false,
-        Callback = function(val)
-            if val then
-                autoObsHakiEnabled = true
-                startObsHaki()
-                -- Reset timer and reactivate on death
-                if obsHakiDeathConnection then obsHakiDeathConnection:Disconnect() obsHakiDeathConnection = nil end
-                obsHakiDeathConnection = LocalPlayer.CharacterAdded:Connect(function()
-                    if not autoObsHakiEnabled then return end
-                    task.wait(1.5)
-                    -- Reset timer by restarting the loop
-                    if obsHakiThread then task.cancel(obsHakiThread) obsHakiThread = nil end
-                    startObsHaki()
-                end)
-                Rayfield:Notify({ Title = "Obs Haki", Content = "Auto Observation Haki enabled!", Duration = 3, Image = 4483362458 })
-            else
-                stopObsHaki()
-                Rayfield:Notify({ Title = "Obs Haki", Content = "Auto Observation Haki disabled.", Duration = 2, Image = 4483362458 })
-            end
-        end,
-    })
-
     -- ── TAB 2: TELEPORT ───────────────────────────────────────────────────────
 
     local TPTab = Window:CreateTab("Teleport", 4483362458)
 
     TPTab:CreateSection("🌍 Islands")
 
-    local islandList     = { "Starter", "Jungle", "Desert", "Snow", "Sailor", "Shibuya", "HuecoMundo", "Boss", "Dungeon", "Shinjuko", "Slime", "Academy", "Judgement", "SoulSociety" }
+    local islandList     = { "Starter", "Jungle", "Desert", "Snow", "Sailor", "Shibuya", "HuecoMundo", "Boss", "Dungeon", "Shinjuko", "Slime", "Academy" }
     local selectedIsland = "Starter"
 
     TPTab:CreateDropdown({
@@ -1681,8 +1706,10 @@ elseif game.PlaceId == SAILOR_ID then
         end
     end
 
-    -- Don't auto-scan on startup — list starts empty, player uses Load All Islands
-    local npcList = getDatabaseNames() -- returns {"None"} since NPCDatabase is empty
+    scanAndStoreNPCs()
+
+    local npcList = getDatabaseNames()
+    if npcList[1] ~= "None" then selectedNPC = npcList[1] end
 
     local NPCDropdown = TPTab:CreateDropdown({
         Name = "Select NPC", Options = npcList, CurrentOption = {npcList[1]},
@@ -1766,24 +1793,16 @@ elseif game.PlaceId == SAILOR_ID then
 
     SBTab:CreateDropdown({
         Name = "Select Bosses",
-        Options = { "AizenBoss", "AlucardBoss", "GojoBoss", "JinwooBoss", "SukunaBoss", "YujiBoss", "YamatoBoss" },
+        Options = { "AizenBoss", "AlucardBoss", "GojoBoss", "JinwooBoss", "SukunaBoss", "YujiBoss" },
         CurrentOption = {}, MultipleOptions = true, Flag = "SpecialBossDropdown",
         Callback = function(options)
             selectedSpecialBosses = options
             Rayfield:Notify({ Title = "Boss Farm", Content = "Selected: " .. (#options > 0 and table.concat(options, ", ") or "None"), Duration = 2, Image = 4483362458 })
-            -- If already running, restart so new selection takes effect immediately
-            if specialBossEnabled then
-                stopSpecialBoss()
-                if #selectedSpecialBosses > 0 then
-                    equipWeapon()
-                    startSpecialBossLoop()
-                end
-            end
         end,
     })
 
     local SpecialBossFarmToggle = SBTab:CreateToggle({
-        Name = "Auto Farm Boss", CurrentValue = false,
+        Name = "Auto Farm Boss", CurrentValue = false, Flag = "SpecialBossFarmToggle",
         Callback = function(val)
             if val then
                 if #selectedSpecialBosses == 0 then
@@ -1872,20 +1891,6 @@ elseif game.PlaceId == SAILOR_ID then
             folder  = "Remotes",
             args    = function(d) return {"GilgameshBoss", d} end,
         },
-        ["TrueAizen"] = {
-            npcPath = "TrueAizenBoss_Normal",
-            pos     = Vector3.new(-1199.470, 1604.119, 1775.046),
-            remote  = "RequestSpawnTrueAizen",
-            folder  = "RemoteEvents",
-            args    = function(d) return {d} end,
-        },
-        ["BlessedMaiden"] = {
-            npcPath = "BlessedMaidenBoss",
-            pos     = Vector3.new(776.951, -2.672, -1090.399),
-            remote  = "RequestSummonBoss",
-            folder  = "Remotes",
-            args    = function(d) return {"BlessedMaidenBoss", d} end,
-        },
     }
 
     local selectedSummonBoss = "Anos"
@@ -1914,7 +1919,7 @@ elseif game.PlaceId == SAILOR_ID then
     end
 
     SBTab:CreateToggle({
-        Name = "⚡ Auto Summon Boss", CurrentValue = false,
+        Name = "⚡ Auto Summon Boss", CurrentValue = false, Flag = "AutoSummonToggle",
         Callback = function(val)
             if val then
                 autoSummonEnabled = true
@@ -1958,6 +1963,7 @@ elseif game.PlaceId == SAILOR_ID then
 
     local function startSummonFarm()
         if not summonFarmEnabled then return end
+        if summonFarmThread then task.cancel(summonFarmThread) summonFarmThread = nil end
         startNoclip()
         summonFarmThread = task.spawn(function()
             while summonFarmEnabled do
@@ -2009,6 +2015,18 @@ elseif game.PlaceId == SAILOR_ID then
                             t += 0.1
                             flyAbove(root)
 
+                            -- Synchronized: M1 + force health to 0 if <= 15%
+                            if bosHum and bosHum.Health > 0 then
+                                -- Always fire M1
+                                pcall(function()
+                                    if RequestHit then RequestHit:FireServer() end
+                                end)
+                                -- If health dropped to 15% or below, force it to 0
+                                if bosHum.Health <= (bosHum.MaxHealth * 0.15) then
+                                    pcall(function() bosHum.Health = 0 end)
+                                end
+                            end
+
                             if not isAlive() then
                                 stopFly()
                                 waitForCharacter()
@@ -2045,7 +2063,7 @@ elseif game.PlaceId == SAILOR_ID then
     end
 
     SBTab:CreateToggle({
-        Name = "⚔ Auto Farm Summoned Boss", CurrentValue = false,
+        Name = "⚔ Auto Farm Summoned Boss", CurrentValue = false, Flag = "SummonFarmToggle",
         Callback = function(val)
             if val then
                 equipWeapon() summonFarmEnabled = true startSummonFarm()
@@ -2057,101 +2075,6 @@ elseif game.PlaceId == SAILOR_ID then
         end,
     })
 
-
-    SBTab:CreateDivider()
-    SBTab:CreateSection("⚡ Instant Kill")
-
-    local instantKillEnabled    = false
-    local instantKillConnections = {}
-    local instantKillTracked    = {}
-
-    local function stopInstantKill()
-        instantKillEnabled = false
-        for _, conn in ipairs(instantKillConnections) do pcall(function() conn:Disconnect() end) end
-        instantKillConnections = {}
-        instantKillTracked = {}
-    end
-
-    local function trackBossForInstantKill(bossModel)
-        if instantKillTracked[bossModel] then return end
-        instantKillTracked[bossModel] = true
-
-        local humanoid = bossModel:FindFirstChildWhichIsA("Humanoid")
-        if not humanoid then return end
-
-        local maxHealth = humanoid.MaxHealth
-        if maxHealth <= 0 then return end
-
-        -- Snapshot health RIGHT NOW as the baseline — only count damage WE deal from this point
-        local baselineHealth = humanoid.Health
-        local triggered = false
-
-        local conn
-        conn = humanoid.HealthChanged:Connect(function(currentHealth)
-            if triggered then return end
-            if not instantKillEnabled then
-                triggered = true
-                task.defer(function() pcall(function() conn:Disconnect() end) end)
-                return
-            end
-            -- Only measure damage from our baseline snapshot, not from maxHealth
-            -- This prevents pre-existing damage from other players triggering it
-            if currentHealth >= baselineHealth then
-                -- Health went up (regen) — update baseline so we measure from here
-                baselineHealth = currentHealth
-                return
-            end
-            local damagePct = ((baselineHealth - currentHealth) / maxHealth) * 100
-            if damagePct >= 15 then
-                triggered = true
-                task.defer(function()
-                    pcall(function() humanoid.Health = 0 end)
-                    pcall(function() conn:Disconnect() end)
-                    instantKillTracked[bossModel] = nil
-                end)
-            end
-        end)
-        table.insert(instantKillConnections, conn)
-    end
-
-    local function startInstantKill()
-        if not instantKillEnabled then return end
-        instantKillTracked = {}
-
-        -- Track all existing NPCs
-        local NPCs = workspace:FindFirstChild("NPCs")
-        if NPCs then
-            for _, npc in ipairs(NPCs:GetChildren()) do
-                if npc:IsA("Model") and npc:FindFirstChildWhichIsA("Humanoid") then
-                    trackBossForInstantKill(npc)
-                end
-            end
-            -- Watch for new bosses spawning
-            local spawnConn = NPCs.ChildAdded:Connect(function(npc)
-                if not instantKillEnabled then return end
-                task.wait(0.1)
-                if npc:IsA("Model") then
-                    trackBossForInstantKill(npc)
-                end
-            end)
-            table.insert(instantKillConnections, spawnConn)
-        end
-    end
-
-    SBTab:CreateToggle({
-        Name = "⚡ Instant Kill Boss", CurrentValue = false,
-        Callback = function(val)
-            if val then
-                instantKillEnabled = true
-                startInstantKill()
-                Rayfield:Notify({ Title = "Instant Kill", Content = "Watching bosses — will kill at 15% damage!", Duration = 3, Image = 4483362458 })
-            else
-                stopInstantKill()
-                Rayfield:Notify({ Title = "Instant Kill", Content = "Instant Kill disabled.", Duration = 2, Image = 4483362458 })
-            end
-        end,
-    })
-
     -- ── TAB 4: AUTO LEVEL ─────────────────────────────────────────────────────
 
     local LVTab = Window:CreateTab("Auto Level", 4483362458)
@@ -2159,14 +2082,14 @@ elseif game.PlaceId == SAILOR_ID then
     LVTab:CreateSection("⭐ Auto Level")
 
     local LevelToggle = LVTab:CreateToggle({
-        Name = "Auto Farm Level", CurrentValue = false,
+        Name = "Auto Farm Level", CurrentValue = false, Flag = "LevelToggle",
         Callback = function(val)
             if val then
                 equipWeapon() levelEnabled = true startLevel()
                 local quest = getQuestForLevel(getPlayerLevel())
                 Rayfield:Notify({ Title = "Auto Level", Content = "Level " .. getPlayerLevel() .. " → " .. quest.mob, Duration = 4, Image = 4483362458 })
             else
-                levelEnabled = false stopLevel()
+                levelEnabled = false stopLevel() stopFly() lastTeleportedMob = ""
                 Rayfield:Notify({ Title = "Auto Level", Content = "Auto Level stopped.", Duration = 3, Image = 4483362458 })
             end
         end,
@@ -2256,7 +2179,7 @@ elseif game.PlaceId == SAILOR_ID then
     })
 
     local AutoBuyToggle = MiscTab:CreateToggle({
-        Name = "Auto Buy", CurrentValue = false,
+        Name = "Auto Buy", CurrentValue = false, Flag = "AutoBuyToggle",
         Callback = function(val)
             if val then
                 if #selectedShopItems == 0 then
@@ -2281,41 +2204,6 @@ elseif game.PlaceId == SAILOR_ID then
                 autoBuyEnabled = false
                 if autoBuyThread then task.cancel(autoBuyThread) autoBuyThread = nil end
                 Rayfield:Notify({ Title = "Auto Buy", Content = "Auto buy stopped.", Duration = 3, Image = 4483362458 })
-            end
-        end,
-    })
-
-
-    MiscTab:CreateDivider()
-    MiscTab:CreateSection("⚗ Crafting")
-
-    local autoCraftGrailEnabled = false
-    local autoCraftGrailThread  = nil
-    local RequestGrailCraft = nil
-    pcall(function()
-        RequestGrailCraft = ReplicatedStorage
-            :WaitForChild("Remotes", 10)
-            :WaitForChild("RequestGrailCraft", 10)
-    end)
-
-    MiscTab:CreateToggle({
-        Name = "Auto Craft Divine Grail", CurrentValue = false,
-        Callback = function(val)
-            if val then
-                autoCraftGrailEnabled = true
-                autoCraftGrailThread = task.spawn(function()
-                    while autoCraftGrailEnabled do
-                        pcall(function()
-                            RequestGrailCraft:InvokeServer("DivineGrail", 1)
-                        end)
-                        task.wait(0.1)
-                    end
-                end)
-                Rayfield:Notify({ Title = "Auto Craft", Content = "Crafting Divine Grail!", Duration = 3, Image = 4483362458 })
-            else
-                autoCraftGrailEnabled = false
-                if autoCraftGrailThread then task.cancel(autoCraftGrailThread) autoCraftGrailThread = nil end
-                Rayfield:Notify({ Title = "Auto Craft", Content = "Divine Grail crafting stopped.", Duration = 3, Image = 4483362458 })
             end
         end,
     })
@@ -2394,18 +2282,6 @@ elseif game.PlaceId == SAILOR_ID then
         end,
     })
 
-    DGTab:CreateButton({
-        Name = "⚔ Join Boss Rush",
-        Callback = function()
-            if RequestDungeonPortal then
-                pcall(function() RequestDungeonPortal:FireServer("BossRush") end)
-                Rayfield:Notify({ Title = "Dungeon", Content = "Joining Boss Rush...", Duration = 3, Image = 4483362458 })
-            else
-                Rayfield:Notify({ Title = "Dungeon", Content = "Failed to join Boss Rush.", Duration = 3, Image = 4483362458 })
-            end
-        end,
-    })
-
     DGTab:CreateDivider()
 
     -- ── Section: Difficulty & Auto Replay ──
@@ -2450,7 +2326,7 @@ elseif game.PlaceId == SAILOR_ID then
     end
 
     local AutoReplayToggle = DGTab:CreateToggle({
-        Name = "🔁 Auto Replay Dungeon", CurrentValue = false,
+        Name = "🔁 Auto Replay Dungeon", CurrentValue = false, Flag = "AutoReplayToggle",
         Callback = function(val)
             if val then
                 autoReplayEnabled = true
@@ -2493,6 +2369,7 @@ elseif game.PlaceId == SAILOR_ID then
 
     local function startDungeonKill()
         if not dungeonKillEnabled then return end
+        if dungeonKillThread then task.cancel(dungeonKillThread) dungeonKillThread = nil end
         startNoclip()
         dungeonKillThread = task.spawn(function()
             while dungeonKillEnabled do
@@ -2534,7 +2411,7 @@ elseif game.PlaceId == SAILOR_ID then
     end
 
     local DungeonKillToggle = DGTab:CreateToggle({
-        Name = "Auto Kill Enemies", CurrentValue = false,
+        Name = "Auto Kill Enemies", CurrentValue = false, Flag = "DungeonKillToggle",
         Callback = function(val)
             if val then
                 equipWeapon()
@@ -2561,6 +2438,8 @@ elseif game.PlaceId == SAILOR_ID then
             Rayfield:Notify({ Title = "Dungeon", Content = "All stopped.", Duration = 3, Image = 4483362458 })
         end,
     })
+
+    Rayfield:LoadConfiguration()
 
 
 elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
@@ -2670,9 +2549,7 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
         { npc = "QuestNPC12", mob = "StrongSorcerer", minLvl = 6250, maxLvl = 6999  },
         { npc = "QuestNPC13", mob = "Curse",          minLvl = 7000, maxLvl = 7999  },
         { npc = "QuestNPC14", mob = "Slime",          minLvl = 8000, maxLvl = 8999  },
-        { npc = "QuestNPC15", mob = "AcademyTeacher", minLvl = 9000,  maxLvl = 9999  },
-        { npc = "QuestNPC16", mob = "Swordsman",       minLvl = 10000, maxLvl = 10750 },
-        { npc = "QuestNPC17", mob = "Quincy",           minLvl = 10750, maxLvl = 99999 },
+        { npc = "QuestNPC15", mob = "AcademyTeacher", minLvl = 9000, maxLvl = 10000 },
     }
 
     local mobCoords = {
@@ -2691,34 +2568,11 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
         ["Curse"]          = Vector3.new( -41.328,    1.907,  -1816.006),
         ["Slime"]          = Vector3.new(-1144.351,  19.703,    364.112),
         ["AcademyTeacher"] = Vector3.new(1074.662,    2.370,   1250.483),
-        ["Swordsman"]      = Vector3.new(-1268.647,   1.306,  -1161.301),
-        ["Quincy"]         = Vector3.new(-1331.364, 1603.621, 1567.672),
-    }
-
-    -- Island each mob/boss belongs to (for TeleportRemote before CFrame tp)
-    local mobIsland = {
-        ["Thief"]          = "Starter",
-        ["ThiefBoss"]      = "Starter",
-        ["Monkey"]         = "Jungle",
-        ["MonkeyBoss"]     = "Jungle",
-        ["DesertBandit"]   = "Desert",
-        ["DesertBoss"]     = "Desert",
-        ["FrostRogue"]     = "Snow",
-        ["SnowBoss"]       = "Snow",
-        ["Sorcerer"]       = "Sailor",
-        ["PandaMiniBoss"]  = "Sailor",
-        ["Hollow"]         = "HuecoMundo",
-        ["StrongSorcerer"] = "Shibuya",
-        ["Curse"]          = "Shibuya",
-        ["Slime"]          = "Slime",
-        ["AcademyTeacher"] = "Academy",
-        ["Swordsman"]      = "Judgement",
-        ["Quincy"]         = "SoulSociety",
     }
 
     local mobList = {
         "Thief", "Monkey", "DesertBandit", "FrostRogue",
-        "Sorcerer", "Hollow", "StrongSorcerer", "Curse", "Slime", "AcademyTeacher", "Swordsman", "Quincy",
+        "Sorcerer", "Hollow", "StrongSorcerer", "Curse", "Slime", "AcademyTeacher",
     }
 
     local bossList = { "ThiefBoss", "MonkeyBoss", "DesertBoss", "SnowBoss", "PandaMiniBoss" }
@@ -2726,10 +2580,6 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
     local bosses = {
         ThiefBoss = true, MonkeyBoss = true, DesertBoss    = true,
         SnowBoss  = true, PandaMiniBoss = true,
-        -- All regular bossList entries — exact name match, no numbered suffix
-        Swordsman = true, AcademyTeacher = true, Slime = true,
-        Curse = true, StrongSorcerer = true, Hollow = true,
-        PandaMiniBoss = true, Sorcerer = true, SnowBoss = true,
     }
 
     local skillKeys = {
@@ -2754,6 +2604,7 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
     local levelEnabled      = false
     local upgradeEnabled    = false
     local autoSummonEnabled = false
+
     local mobThread        = nil
     local bossThread       = nil
     local skillThread      = nil
@@ -2789,6 +2640,7 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
     end
 
     local function startFlyAbove(targetRoot)
+        if not farmMovementEnabled() then return end
         local character = LocalPlayer.Character
         if not character then return end
         local hrp = character:FindFirstChild("HumanoidRootPart")
@@ -2867,6 +2719,7 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
     end
 
     local function updateFlyTarget(targetRoot)
+        if not farmMovementEnabled() then stopFly() return end
         if not targetRoot or not targetRoot.Parent then return end
         if not flyTargetPart then startFlyAbove(targetRoot) end
     end
@@ -2884,7 +2737,19 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
         end
     end
 
+    local function isFarming()
+        return mobEnabled or bossEnabled or levelEnabled
+            or specialBossEnabled or summonFarmEnabled or dungeonKillEnabled
+    end
+
+    local function farmMovementEnabled()
+        return mobEnabled or bossEnabled or levelEnabled
+            or specialBossEnabled or summonFarmEnabled or dungeonKillEnabled
+    end
+    end
+
     local function flyAbove(targetRoot)
+        if not isFarming() then stopFly() return end
         if currentFlyRoot ~= targetRoot then
             currentFlyRoot = targetRoot
             startFlyAbove(targetRoot)
@@ -2977,23 +2842,17 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
     local lastTeleportedMob = ""
 
     local function teleportForMob(mobName)
+        if not farmMovementEnabled() then return end
         if mobName == lastTeleportedMob then return end
         local coords = mobCoords[mobName]
         if not coords then return end
         local c   = LocalPlayer.Character
         local hrp = c and c:FindFirstChild("HumanoidRootPart")
         if not hrp then return end
-        -- Fire island teleport first so the server loads the right area
-        local island = mobIsland[mobName]
-        if island and TeleportRemote then
-            pcall(function() TeleportRemote:FireServer(island) end)
-            task.wait(1.5)
-        end
-        -- Then CFrame snap to exact mob location
         hrp.CFrame        = CFrame.new(coords + Vector3.new(0, 5, 0))
         lastTeleportedMob = mobName
-        Rayfield:Notify({ Title = "Teleport", Content = "Moved to " .. mobName .. " (" .. (island or "?") .. ")!", Duration = 2, Image = 4483362458 })
-        task.wait(0.5)
+        Rayfield:Notify({ Title = "Teleport", Content = "Moved to " .. mobName .. "!", Duration = 2, Image = 4483362458 })
+        task.wait(1)
     end
 
     local function getAllMobs(exactName)
@@ -3004,11 +2863,9 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
         local function searchFolder(folder)
             for _, mob in pairs(folder:GetChildren()) do
                 if mob:IsA("Model") then
-                    -- For bosses: exact name match only
-                    -- For mobs: numbered suffix match (e.g. "Thief1", "Thief2")
-                    -- Fallback: also accept exact name for anything (catches bosses not in bosses table)
-                    local matches = (mob.Name == exactName)
-                        or (not isBoss and mob.Name:match("^" .. escaped .. "%d+$") ~= nil)
+                    local matches = isBoss
+                        and (mob.Name == exactName)
+                        or  (mob.Name:match("^" .. escaped .. "%d+$") ~= nil)
                     if matches then
                         local hum  = mob:FindFirstChildOfClass("Humanoid")
                         local root = mob:FindFirstChild("HumanoidRootPart")
@@ -3027,6 +2884,7 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
     end
 
     local function snapNearTarget(root, maxDist)
+        if not farmMovementEnabled() then return end
         local c   = LocalPlayer.Character
         local hrp = c and c:FindFirstChild("HumanoidRootPart")
         if not hrp or not root then return end
@@ -3038,6 +2896,7 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
 
     -- Keep player floating at current height when no mobs are nearby
     local function hoverInPlace()
+        if not farmMovementEnabled() then return end
         if flyTargetPart then return end -- already flying via main system, don't interfere
         local c   = LocalPlayer.Character
         local hrp = c and c:FindFirstChild("HumanoidRootPart")
@@ -3075,6 +2934,7 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
 
     local function killMob(mob)
         if not mob then return false end
+        if not farmMovementEnabled() then return false end
         local root   = mob:FindFirstChild("HumanoidRootPart")
         local mobHum = mob:FindFirstChildOfClass("Humanoid")
         if not root or not mobHum or mobHum.Health <= 0 then return false end
@@ -3084,8 +2944,9 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
         repeat
             task.wait(0.1)
             t += 0.1
+            if not farmMovementEnabled() then stopFly() return false end
             flyAbove(root)
-        until mobHum.Health <= 0 or not mobEnabled or t > 30 or not isAlive()
+        until mobHum.Health <= 0 or not mobEnabled or not farmMovementEnabled() or t > 30 or not isAlive()
         stopFly()
         task.wait(0.1)
         return mobHum.Health <= 0
@@ -3114,7 +2975,6 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
         { name = "JinwooBoss",  pos = Vector3.new( 248.738,  7.594,  927.545), island = "Sailor"     },
         { name = "SukunaBoss",  pos = Vector3.new(1571.267, 80.221,  -34.113), island = "Shibuya"    },
         { name = "YujiBoss",    pos = Vector3.new(1537.929, 12.986,  226.108), island = "Shibuya"    },
-        { name = "YamatoBoss",  pos = Vector3.new(-1422.681, 21.471, -1383.469), island = "Judgement"  },
     }
 
     local chatKeywordToBoss = {
@@ -3122,7 +2982,6 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
         ["Gojo"]   = "GojoBoss",    ["Jinwoo"]  = "JinwooBoss",
         ["Madoka"] = "MadokaBoss",  ["Ragna"]   = "RagnaBoss",
         ["Sukuna"] = "SukunaBoss",  ["Yuji"]    = "YujiBoss",
-        ["Yamato"] = "YamatoBoss",
     }
 
     local selectedSpecialBosses  = {}
@@ -3171,36 +3030,19 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
 
     local function resumePreviousFarming()
         lastTeleportedMob = ""
-        local didResume = false
-        if resumeAfterBoss.mob then
-            mobEnabled = true
-            startMob()
-            didResume = true
-        end
-        if resumeAfterBoss.boss then
-            bossEnabled = true
-            startBoss()
-            didResume = true
-        end
-        if resumeAfterBoss.level then
-            levelEnabled = true
-            startLevel()
-            didResume = true
-        end
+        -- Only resume if the mob/boss/level thread is not already running
+        if resumeAfterBoss.mob   and not mobThread   then mobEnabled   = true startMob()   end
+        if resumeAfterBoss.boss  and not bossThread  then bossEnabled  = true startBoss()  end
+        if resumeAfterBoss.level and not levelThread then levelEnabled = true startLevel() end
         if noclipNeeded() then startNoclip() end
         resumeAfterBoss = { mob = false, boss = false, level = false }
-        if didResume then
-            Rayfield:Notify({ Title = "Boss Farm", Content = "Resumed previous farming!", Duration = 3, Image = 4483362458 })
-        end
     end
 
     local function fightDetectedBoss(bossName)
-        -- Save what was running before the boss interrupted
         resumeAfterBoss.mob   = resumeAfterBoss.mob   or mobEnabled
         resumeAfterBoss.boss  = resumeAfterBoss.boss  or bossEnabled
         resumeAfterBoss.level = resumeAfterBoss.level or levelEnabled
 
-        -- Stop all current farming immediately
         if mobEnabled   then mobEnabled   = false if mobThread   then task.cancel(mobThread)   mobThread   = nil end end
         if bossEnabled  then bossEnabled  = false if bossThread  then task.cancel(bossThread)  bossThread  = nil end end
         if levelEnabled then levelEnabled = false if levelThread then task.cancel(levelThread) levelThread = nil end end
@@ -3211,68 +3053,46 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
         for _, d in ipairs(specialBossData) do
             if d.name == bossName then bossData = d break end
         end
-        if not bossData then
-            -- Unknown boss — still resume whatever was running before
-            resumePreviousFarming()
-            return
-        end
+        if not bossData then return end
 
-        Rayfield:Notify({ Title = "⚡ Boss!", Content = "Going to " .. bossName .. " (" .. (bossData.island or "?") .. ")...", Duration = 4, Image = 4483362458 })
+        Rayfield:Notify({ Title = "⚡ Boss!", Content = "Going to " .. bossName .. "...", Duration = 4, Image = 4483362458 })
 
-        -- Fire island teleport first, then CFrame snap to boss position
-        if bossData.island and TeleportRemote then
-            pcall(function() TeleportRemote:FireServer(bossData.island) end)
-            task.wait(0.5)
-        end
         local c   = LocalPlayer.Character
         local hrp = c and c:FindFirstChild("HumanoidRootPart")
         if hrp then
             hrp.CFrame = CFrame.new(bossData.pos + Vector3.new(0, FLY_HEIGHT, 0))
-            task.wait(0.3)
+            task.wait(1)
         end
 
-        local model, root, hum = waitForBossModel(bossName, 5)
+        local model, root, hum = waitForBossModel(bossName, 10)
         if not model then
-            -- Boss not found or already dead — resume previous farming
-            Rayfield:Notify({ Title = "Boss Farm", Content = bossName .. " not found, resuming...", Duration = 3, Image = 4483362458 })
-            resumePreviousFarming()
+            Rayfield:Notify({ Title = "Boss Farm", Content = bossName .. " not found.", Duration = 3, Image = 4483362458 })
             return
         end
-
-        startNoclip()
 
         while specialBossEnabled do
             if not isAlive() then
                 stopFly()
                 waitForCharacter()
-                if not specialBossEnabled then break end
                 equipWeapon()
-                task.wait(0.3)
-                -- Re-teleport back to boss area after death
                 local c2   = LocalPlayer.Character
                 local hrp2 = c2 and c2:FindFirstChild("HumanoidRootPart")
-                if hrp2 then
+                if hrp2 and (hrp2.Position - bossData.pos).Magnitude > 200 then
                     hrp2.CFrame = CFrame.new(bossData.pos + Vector3.new(0, FLY_HEIGHT, 0))
-                    task.wait(0.3)
+                    task.wait(0.5)
                 end
-                startNoclip()
-                -- Wait for boss to reappear (it may respawn)
-                model, root, hum = waitForBossModel(bossName, 5)
-                if not model then
-                    -- Boss gone after our death — resume farming
-                    Rayfield:Notify({ Title = "Boss Farm", Content = bossName .. " gone after death, resuming...", Duration = 3, Image = 4483362458 })
-                    break
-                end
+                model, root, hum = waitForBossModel(bossName, 8)
+                if not model then break end
             end
 
             model, root, hum = getBossModel(bossName)
             if not model then
-                -- Boss defeated!
-                Rayfield:Notify({ Title = "Boss Farm", Content = bossName .. " defeated! Resuming farming...", Duration = 3, Image = 4483362458 })
+                Rayfield:Notify({ Title = "Boss Farm", Content = bossName .. " defeated!", Duration = 3, Image = 4483362458 })
                 break
             end
 
             snapNearTarget(root, 120)
+            startNoclip()
             flyAbove(root)
 
             repeat
@@ -3284,14 +3104,8 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
             stopFly()
         end
 
-        stopFly()
         stopNoclip()
-
-        -- Always resume previous farming when done with this boss
-        -- Even if specialBoss was toggled off mid-fight, restore what was running before
-        if #specialBossQueue > 0 and specialBossEnabled then
-            -- More bosses queued — don't resume yet, let the queue handle it
-        else
+        if specialBossEnabled and #specialBossQueue == 0 then
             resumePreviousFarming()
         end
     end
@@ -3332,14 +3146,10 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
             end
         end)
 
-        -- Scan for bosses already present in workspace when loop starts
         local NPCs = workspace:FindFirstChild("NPCs")
         if NPCs then
-            for _, npc in ipairs(NPCs:GetChildren()) do
-                if isSelectedBoss(npc.Name) then
-                    local hum = npc:FindFirstChildOfClass("Humanoid")
-                    if hum and hum.Health > 0 then addToQueue(npc.Name) end
-                end
+            for _, npc in pairs(NPCs:GetChildren()) do
+                if isSelectedBoss(npc.Name) then addToQueue(npc.Name) end
             end
             local conn = NPCs.ChildAdded:Connect(function(npc)
                 if specialBossEnabled and isSelectedBoss(npc.Name) then addToQueue(npc.Name) end
@@ -3352,7 +3162,7 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
                 if #specialBossQueue > 0 then
                     fightDetectedBoss(table.remove(specialBossQueue, 1))
                 else
-                    task.wait(0.2)
+                    task.wait(1)
                 end
             end
         end)
@@ -3451,7 +3261,7 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
                                 task.wait(0.1)
                                 t += 0.1
                                 flyAbove(root)
-                            until mobHum.Health <= 0 or not getEnabled() or t > 120 or not isAlive() or getMobName() ~= mobName
+                            until mobHum.Health <= 0 or not getEnabled() or t > 20 or not isAlive() or getMobName() ~= mobName
                             stopFly()
                             task.wait(0.1)
                         end
@@ -3459,7 +3269,6 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
                     task.wait(0.1)
                 end
             end
-            task.wait(0.3)
         end
         stopFly()
     end
@@ -3477,6 +3286,7 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
 
     startMob = function()
         if not mobEnabled then return end
+        if mobThread then task.cancel(mobThread) mobThread = nil end
         if autoSummonEnabled then
             autoSummonEnabled = false
             if autoSummonThread then task.cancel(autoSummonThread) autoSummonThread = nil end
@@ -3563,11 +3373,11 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
 
     startBoss = function()
         if not bossEnabled then return end
+        if bossThread then task.cancel(bossThread) bossThread = nil end
         startNoclip()
         bossThread = task.spawn(function()
             teleportForMob(selectedBoss)
             farmLoop(function() return bossEnabled end, function() return selectedBoss end)
-            bossThread = nil
         end)
     end
 
@@ -3584,6 +3394,7 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
 
     startLevel = function()
         if not levelEnabled then return end
+        if levelThread then task.cancel(levelThread) levelThread = nil end
         startNoclip()
         levelThread = task.spawn(function()
             while levelEnabled do
@@ -3653,12 +3464,8 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
         if upgradeEnabled     then startUpgrade() end
         if noclipNeeded()     then startNoclip()  end
         if specialBossEnabled then
-            -- Don't cancel specialBossThread here — fightDetectedBoss handles
-            -- death internally via waitForCharacter. Only restart if the thread
-            -- has actually died (e.g. crashed), not just because we respawned.
-            if not specialBossThread then
-                startSpecialBossLoop()
-            end
+            if specialBossThread then task.cancel(specialBossThread) specialBossThread = nil end
+            startSpecialBossLoop()
         end
     end)
 
@@ -3667,7 +3474,7 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
     -- ╚══════════════════════════════════════════════════════╝
 
     windowConfig.Name            = "DRAG HUB | Dungeon"
-    windowConfig.LoadingTitle    = "<b>DRAG HUB</b>"
+    windowConfig.LoadingTitle    = "DRAG HUB"
     windowConfig.LoadingSubtitle = "Sailor Piece - Dungeon"
 
     local Window = Rayfield:CreateWindow(windowConfig)
@@ -3725,10 +3532,39 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
     })
 
     SPTab:CreateDivider()
+    SPTab:CreateSection("✨ Auto Skill")
+
+    local SkillToggle = SPTab:CreateToggle({
+        Name = "Auto Skill", CurrentValue = false, Flag = "SkillToggle",
+        Callback = function(val)
+            if val then
+                if #selectedSkills == 0 then
+                    Rayfield:Notify({ Title = "Auto Skill", Content = "Select at least one skill first!", Duration = 3, Image = 4483362458 })
+                    SkillToggle:Set(false) return
+                end
+                startSkill()
+                Rayfield:Notify({ Title = "Auto Skill", Content = "Auto Skill enabled!", Duration = 3, Image = 4483362458 })
+            else
+                stopSkill()
+            end
+        end,
+    })
+
+    SPTab:CreateDropdown({
+        Name = "Select Skills",
+        Options = {"Z (Skill 1)", "X (Skill 2)", "C (Skill 3)", "V (Skill 4)", "F (Skill 5)"},
+        CurrentOption = {}, MultipleOptions = true, Flag = "SkillDropdown",
+        Callback = function(options)
+            selectedSkills = options
+            Rayfield:Notify({ Title = "Auto Skill", Content = "Skills: " .. (#options > 0 and table.concat(options, ", ") or "None"), Duration = 2, Image = 4483362458 })
+        end,
+    })
+
+    SPTab:CreateDivider()
     SPTab:CreateSection("👊 Mobs")
 
     local MobFarmToggle = SPTab:CreateToggle({
-        Name = "Auto Farm Mob", CurrentValue = false,
+        Name = "Auto Farm Mob", CurrentValue = false, Flag = "MobFarmToggle",
         Callback = function(val)
             if val then
                 if #selectedMobs == 0 then
@@ -3739,7 +3575,7 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
                 equipWeapon() mobEnabled = true startMob()
                 Rayfield:Notify({ Title = "Auto Mob", Content = "Farming: " .. table.concat(selectedMobs, ", "), Duration = 3, Image = 4483362458 })
             else
-                mobEnabled = false stopMob()
+                mobEnabled = false stopMob() stopFly() lastTeleportedMob = ""
                 Rayfield:Notify({ Title = "Auto Mob", Content = "Mob farm stopped.", Duration = 3, Image = 4483362458 })
             end
         end,
@@ -3770,13 +3606,13 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
     SPTab:CreateSection("💀 Boss")
 
     local BossFarmToggle = SPTab:CreateToggle({
-        Name = "Auto Farm Boss", CurrentValue = false,
+        Name = "Auto Farm Boss", CurrentValue = false, Flag = "BossFarmToggle",
         Callback = function(val)
             if val then
                 equipWeapon() bossEnabled = true startBoss()
                 Rayfield:Notify({ Title = "Auto Boss", Content = "Farming: " .. selectedBoss, Duration = 3, Image = 4483362458 })
             else
-                bossEnabled = false stopBoss()
+                bossEnabled = false stopBoss() stopFly() lastTeleportedMob = ""
                 Rayfield:Notify({ Title = "Auto Boss", Content = "Boss farm stopped.", Duration = 3, Image = 4483362458 })
             end
         end,
@@ -3788,10 +3624,8 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
         Callback = function(options)
             if options[1] then
                 selectedBoss = options[1]
-                if bossEnabled then
-                    lastTeleportedMob = ""
-                    if not bossThread then bossEnabled = true equipWeapon() startBoss() end
-                end
+                lastTeleportedMob = ""
+                if bossEnabled then stopBoss() bossEnabled = true startBoss() end
                 Rayfield:Notify({ Title = "Auto Boss", Content = "Boss: " .. selectedBoss, Duration = 2, Image = 4483362458 })
             end
         end,
@@ -3801,7 +3635,7 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
     SPTab:CreateSection("📈 Upgrade Stats")
 
     local UpgradeToggle = SPTab:CreateToggle({
-        Name = "Auto Upgrade Stat", CurrentValue = false,
+        Name = "Auto Upgrade Stat", CurrentValue = false, Flag = "UpgradeToggle",
         Callback = function(val)
             if val then
                 if #selectedStats == 0 then
@@ -3828,6 +3662,21 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
     })
 
     SPTab:CreateDivider()
+    SPTab:CreateSection("🥊 Auto M1")
+
+    SPTab:CreateToggle({
+        Name = "Auto M1 Attack", CurrentValue = false, Flag = "AutoM1Toggle",
+        Callback = function(val)
+            autoM1Enabled = val
+            if val then
+                Rayfield:Notify({ Title = "Auto M1", Content = "M1 attack enabled!", Duration = 2, Image = 4483362458 })
+            else
+                Rayfield:Notify({ Title = "Auto M1", Content = "M1 attack disabled.", Duration = 2, Image = 4483362458 })
+            end
+        end,
+    })
+
+    SPTab:CreateDivider()
     SPTab:CreateSection("⚙ Controls")
 
     SPTab:CreateButton({
@@ -3843,173 +3692,13 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
         end,
     })
 
-
-    -- ── TAB: PLAYER ──────────────────────────────────────────────────────────
-
-    local PlayerTab = Window:CreateTab("Player", 4483362458)
-
-    -- ── Remotes ──
-    local HakiRemote = nil
-    pcall(function()
-        HakiRemote = ReplicatedStorage
-            :WaitForChild("RemoteEvents", 10)
-            :WaitForChild("HakiRemote", 10)
-    end)
-
-    local DeathVFX = nil
-    pcall(function()
-        DeathVFX = ReplicatedStorage
-            :WaitForChild("RemoteEvents", 10)
-            :WaitForChild("DeathVFX", 10)
-    end)
-
-    local ObservationHakiRemote = nil
-    pcall(function()
-        ObservationHakiRemote = ReplicatedStorage
-            :WaitForChild("RemoteEvents", 10)
-            :WaitForChild("ObservationHakiRemote", 10)
-    end)
-
-    -- ── State ──
-    local autoHakiEnabled        = false
-    local autoObsHakiEnabled     = false
-    local obsHakiThread          = nil
-    local obsHakiDeathConnection = nil
-    local hakiDeathConnection    = nil
-
-    -- ── Section: Auto M1 ──
-    PlayerTab:CreateSection("🥊 Auto M1")
-
-    PlayerTab:CreateToggle({
-        Name = "Auto M1 Attack", CurrentValue = false, Flag = "AutoM1Toggle",
-        Callback = function(val)
-            autoM1Enabled = val
-            if val then
-                Rayfield:Notify({ Title = "Auto M1", Content = "M1 attack enabled!", Duration = 2, Image = 4483362458 })
-            else
-                Rayfield:Notify({ Title = "Auto M1", Content = "M1 attack disabled.", Duration = 2, Image = 4483362458 })
-            end
-        end,
-    })
-
-    PlayerTab:CreateDivider()
-
-    -- ── Section: Auto Skill ──
-    PlayerTab:CreateSection("✨ Auto Skill")
-
-    local SkillToggle = PlayerTab:CreateToggle({
-        Name = "Auto Skill", CurrentValue = false,
-        Callback = function(val)
-            if val then
-                if #selectedSkills == 0 then
-                    Rayfield:Notify({ Title = "Auto Skill", Content = "Select at least one skill first!", Duration = 3, Image = 4483362458 })
-                    SkillToggle:Set(false) return
-                end
-                startSkill()
-                Rayfield:Notify({ Title = "Auto Skill", Content = "Auto Skill enabled!", Duration = 3, Image = 4483362458 })
-            else
-                stopSkill()
-            end
-        end,
-    })
-
-    PlayerTab:CreateDropdown({
-        Name = "Select Skills",
-        Options = {"Z (Skill 1)", "X (Skill 2)", "C (Skill 3)", "V (Skill 4)", "F (Skill 5)"},
-        CurrentOption = {}, MultipleOptions = true, Flag = "SkillDropdown",
-        Callback = function(options)
-            selectedSkills = options
-            Rayfield:Notify({ Title = "Auto Skill", Content = "Skills: " .. (#options > 0 and table.concat(options, ", ") or "None"), Duration = 2, Image = 4483362458 })
-        end,
-    })
-
-    PlayerTab:CreateDivider()
-
-    -- ── Section: Auto Haki ──
-    PlayerTab:CreateSection("🔥 Auto Haki")
-
-    PlayerTab:CreateToggle({
-        Name = "Auto Haki", CurrentValue = false,
-        Callback = function(val)
-            autoHakiEnabled = val
-            if val then
-                -- Activate haki immediately on enable
-                pcall(function() HakiRemote:FireServer("Toggle") end)
-                -- Connect death handler: fire DeathVFX then re-toggle haki on respawn
-                if hakiDeathConnection then hakiDeathConnection:Disconnect() hakiDeathConnection = nil end
-                hakiDeathConnection = LocalPlayer.CharacterAdded:Connect(function(char)
-                    if not autoHakiEnabled then return end
-                    task.wait(1.5)
-                    pcall(function() DeathVFX:FireServer(LocalPlayer.Character) end)
-                    task.wait(0.5)
-                    pcall(function() HakiRemote:FireServer("Toggle") end)
-                end)
-                Rayfield:Notify({ Title = "Auto Haki", Content = "Haki activated! Will auto re-activate on death.", Duration = 3, Image = 4483362458 })
-            else
-                autoHakiEnabled = false
-                if hakiDeathConnection then hakiDeathConnection:Disconnect() hakiDeathConnection = nil end
-                Rayfield:Notify({ Title = "Auto Haki", Content = "Auto Haki disabled.", Duration = 2, Image = 4483362458 })
-            end
-        end,
-    })
-
-    PlayerTab:CreateDivider()
-
-    -- ── Section: Auto Observation Haki ──
-    PlayerTab:CreateSection("👁 Auto Observation Haki")
-
-    local function stopObsHaki()
-        autoObsHakiEnabled = false
-        if obsHakiThread then task.cancel(obsHakiThread) obsHakiThread = nil end
-        if obsHakiDeathConnection then obsHakiDeathConnection:Disconnect() obsHakiDeathConnection = nil end
-    end
-
-    local function startObsHaki()
-        if not autoObsHakiEnabled then return end
-        if obsHakiThread then task.cancel(obsHakiThread) obsHakiThread = nil end
-        obsHakiThread = task.spawn(function()
-            while autoObsHakiEnabled do
-                pcall(function() ObservationHakiRemote:FireServer("Toggle") end)
-                -- Wait 60 seconds, checking every second so death can reset timer
-                local waited = 0
-                while waited < 60 and autoObsHakiEnabled do
-                    task.wait(1)
-                    waited += 1
-                end
-            end
-        end)
-    end
-
-    PlayerTab:CreateToggle({
-        Name = "Auto Observation Haki", CurrentValue = false,
-        Callback = function(val)
-            if val then
-                autoObsHakiEnabled = true
-                startObsHaki()
-                -- Reset timer and reactivate on death
-                if obsHakiDeathConnection then obsHakiDeathConnection:Disconnect() obsHakiDeathConnection = nil end
-                obsHakiDeathConnection = LocalPlayer.CharacterAdded:Connect(function()
-                    if not autoObsHakiEnabled then return end
-                    task.wait(1.5)
-                    -- Reset timer by restarting the loop
-                    if obsHakiThread then task.cancel(obsHakiThread) obsHakiThread = nil end
-                    startObsHaki()
-                end)
-                Rayfield:Notify({ Title = "Obs Haki", Content = "Auto Observation Haki enabled!", Duration = 3, Image = 4483362458 })
-            else
-                stopObsHaki()
-                Rayfield:Notify({ Title = "Obs Haki", Content = "Auto Observation Haki disabled.", Duration = 2, Image = 4483362458 })
-            end
-        end,
-    })
-
     -- ── TAB 2: TELEPORT ───────────────────────────────────────────────────────
 
     local TPTab = Window:CreateTab("Teleport", 4483362458)
 
     TPTab:CreateSection("🌍 Islands")
 
-    local islandList     = { "Starter", "Jungle", "Desert", "Snow", "Sailor", "Shibuya", "HuecoMundo", "Boss", "Dungeon", "Shinjuko", "Slime", "Academy", "Judgement", "SoulSociety" }
+    local islandList     = { "Starter", "Jungle", "Desert", "Snow", "Sailor", "Shibuya", "HuecoMundo", "Boss", "Dungeon", "Shinjuko", "Slime", "Academy" }
     local selectedIsland = "Starter"
 
     TPTab:CreateDropdown({
@@ -4066,8 +3755,10 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
         end
     end
 
-    -- Don't auto-scan on startup — list starts empty, player uses Load All Islands
-    local npcList = getDatabaseNames() -- returns {"None"} since NPCDatabase is empty
+    scanAndStoreNPCs()
+
+    local npcList = getDatabaseNames()
+    if npcList[1] ~= "None" then selectedNPC = npcList[1] end
 
     local NPCDropdown = TPTab:CreateDropdown({
         Name = "Select NPC", Options = npcList, CurrentOption = {npcList[1]},
@@ -4151,24 +3842,16 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
 
     SBTab:CreateDropdown({
         Name = "Select Bosses",
-        Options = { "AizenBoss", "AlucardBoss", "GojoBoss", "JinwooBoss", "SukunaBoss", "YujiBoss", "YamatoBoss" },
+        Options = { "AizenBoss", "AlucardBoss", "GojoBoss", "JinwooBoss", "SukunaBoss", "YujiBoss" },
         CurrentOption = {}, MultipleOptions = true, Flag = "SpecialBossDropdown",
         Callback = function(options)
             selectedSpecialBosses = options
             Rayfield:Notify({ Title = "Boss Farm", Content = "Selected: " .. (#options > 0 and table.concat(options, ", ") or "None"), Duration = 2, Image = 4483362458 })
-            -- If already running, restart so new selection takes effect immediately
-            if specialBossEnabled then
-                stopSpecialBoss()
-                if #selectedSpecialBosses > 0 then
-                    equipWeapon()
-                    startSpecialBossLoop()
-                end
-            end
         end,
     })
 
     local SpecialBossFarmToggle = SBTab:CreateToggle({
-        Name = "Auto Farm Boss", CurrentValue = false,
+        Name = "Auto Farm Boss", CurrentValue = false, Flag = "SpecialBossFarmToggle",
         Callback = function(val)
             if val then
                 if #selectedSpecialBosses == 0 then
@@ -4257,20 +3940,6 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
             folder  = "Remotes",
             args    = function(d) return {"GilgameshBoss", d} end,
         },
-        ["TrueAizen"] = {
-            npcPath = "TrueAizenBoss_Normal",
-            pos     = Vector3.new(-1199.470, 1604.119, 1775.046),
-            remote  = "RequestSpawnTrueAizen",
-            folder  = "RemoteEvents",
-            args    = function(d) return {d} end,
-        },
-        ["BlessedMaiden"] = {
-            npcPath = "BlessedMaidenBoss",
-            pos     = Vector3.new(776.951, -2.672, -1090.399),
-            remote  = "RequestSummonBoss",
-            folder  = "Remotes",
-            args    = function(d) return {"BlessedMaidenBoss", d} end,
-        },
     }
 
     local selectedSummonBoss = "Anos"
@@ -4299,7 +3968,7 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
     end
 
     SBTab:CreateToggle({
-        Name = "⚡ Auto Summon Boss", CurrentValue = false,
+        Name = "⚡ Auto Summon Boss", CurrentValue = false, Flag = "AutoSummonToggle",
         Callback = function(val)
             if val then
                 autoSummonEnabled = true
@@ -4343,6 +4012,7 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
 
     local function startSummonFarm()
         if not summonFarmEnabled then return end
+        if summonFarmThread then task.cancel(summonFarmThread) summonFarmThread = nil end
         startNoclip()
         summonFarmThread = task.spawn(function()
             while summonFarmEnabled do
@@ -4394,6 +4064,18 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
                             t += 0.1
                             flyAbove(root)
 
+                            -- Synchronized: M1 + force health to 0 if <= 15%
+                            if bosHum and bosHum.Health > 0 then
+                                -- Always fire M1
+                                pcall(function()
+                                    if RequestHit then RequestHit:FireServer() end
+                                end)
+                                -- If health dropped to 15% or below, force it to 0
+                                if bosHum.Health <= (bosHum.MaxHealth * 0.15) then
+                                    pcall(function() bosHum.Health = 0 end)
+                                end
+                            end
+
                             if not isAlive() then
                                 stopFly()
                                 waitForCharacter()
@@ -4430,7 +4112,7 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
     end
 
     SBTab:CreateToggle({
-        Name = "⚔ Auto Farm Summoned Boss", CurrentValue = false,
+        Name = "⚔ Auto Farm Summoned Boss", CurrentValue = false, Flag = "SummonFarmToggle",
         Callback = function(val)
             if val then
                 equipWeapon() summonFarmEnabled = true startSummonFarm()
@@ -4442,101 +4124,6 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
         end,
     })
 
-
-    SBTab:CreateDivider()
-    SBTab:CreateSection("⚡ Instant Kill")
-
-    local instantKillEnabled    = false
-    local instantKillConnections = {}
-    local instantKillTracked    = {}
-
-    local function stopInstantKill()
-        instantKillEnabled = false
-        for _, conn in ipairs(instantKillConnections) do pcall(function() conn:Disconnect() end) end
-        instantKillConnections = {}
-        instantKillTracked = {}
-    end
-
-    local function trackBossForInstantKill(bossModel)
-        if instantKillTracked[bossModel] then return end
-        instantKillTracked[bossModel] = true
-
-        local humanoid = bossModel:FindFirstChildWhichIsA("Humanoid")
-        if not humanoid then return end
-
-        local maxHealth = humanoid.MaxHealth
-        if maxHealth <= 0 then return end
-
-        -- Snapshot health RIGHT NOW as the baseline — only count damage WE deal from this point
-        local baselineHealth = humanoid.Health
-        local triggered = false
-
-        local conn
-        conn = humanoid.HealthChanged:Connect(function(currentHealth)
-            if triggered then return end
-            if not instantKillEnabled then
-                triggered = true
-                task.defer(function() pcall(function() conn:Disconnect() end) end)
-                return
-            end
-            -- Only measure damage from our baseline snapshot, not from maxHealth
-            -- This prevents pre-existing damage from other players triggering it
-            if currentHealth >= baselineHealth then
-                -- Health went up (regen) — update baseline so we measure from here
-                baselineHealth = currentHealth
-                return
-            end
-            local damagePct = ((baselineHealth - currentHealth) / maxHealth) * 100
-            if damagePct >= 15 then
-                triggered = true
-                task.defer(function()
-                    pcall(function() humanoid.Health = 0 end)
-                    pcall(function() conn:Disconnect() end)
-                    instantKillTracked[bossModel] = nil
-                end)
-            end
-        end)
-        table.insert(instantKillConnections, conn)
-    end
-
-    local function startInstantKill()
-        if not instantKillEnabled then return end
-        instantKillTracked = {}
-
-        -- Track all existing NPCs
-        local NPCs = workspace:FindFirstChild("NPCs")
-        if NPCs then
-            for _, npc in ipairs(NPCs:GetChildren()) do
-                if npc:IsA("Model") and npc:FindFirstChildWhichIsA("Humanoid") then
-                    trackBossForInstantKill(npc)
-                end
-            end
-            -- Watch for new bosses spawning
-            local spawnConn = NPCs.ChildAdded:Connect(function(npc)
-                if not instantKillEnabled then return end
-                task.wait(0.1)
-                if npc:IsA("Model") then
-                    trackBossForInstantKill(npc)
-                end
-            end)
-            table.insert(instantKillConnections, spawnConn)
-        end
-    end
-
-    SBTab:CreateToggle({
-        Name = "⚡ Instant Kill Boss", CurrentValue = false,
-        Callback = function(val)
-            if val then
-                instantKillEnabled = true
-                startInstantKill()
-                Rayfield:Notify({ Title = "Instant Kill", Content = "Watching bosses — will kill at 15% damage!", Duration = 3, Image = 4483362458 })
-            else
-                stopInstantKill()
-                Rayfield:Notify({ Title = "Instant Kill", Content = "Instant Kill disabled.", Duration = 2, Image = 4483362458 })
-            end
-        end,
-    })
-
     -- ── TAB 4: AUTO LEVEL ─────────────────────────────────────────────────────
 
     local LVTab = Window:CreateTab("Auto Level", 4483362458)
@@ -4544,14 +4131,14 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
     LVTab:CreateSection("⭐ Auto Level")
 
     local LevelToggle = LVTab:CreateToggle({
-        Name = "Auto Farm Level", CurrentValue = false,
+        Name = "Auto Farm Level", CurrentValue = false, Flag = "LevelToggle",
         Callback = function(val)
             if val then
                 equipWeapon() levelEnabled = true startLevel()
                 local quest = getQuestForLevel(getPlayerLevel())
                 Rayfield:Notify({ Title = "Auto Level", Content = "Level " .. getPlayerLevel() .. " → " .. quest.mob, Duration = 4, Image = 4483362458 })
             else
-                levelEnabled = false stopLevel()
+                levelEnabled = false stopLevel() stopFly() lastTeleportedMob = ""
                 Rayfield:Notify({ Title = "Auto Level", Content = "Auto Level stopped.", Duration = 3, Image = 4483362458 })
             end
         end,
@@ -4641,7 +4228,7 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
     })
 
     local AutoBuyToggle = MiscTab:CreateToggle({
-        Name = "Auto Buy", CurrentValue = false,
+        Name = "Auto Buy", CurrentValue = false, Flag = "AutoBuyToggle",
         Callback = function(val)
             if val then
                 if #selectedShopItems == 0 then
@@ -4666,41 +4253,6 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
                 autoBuyEnabled = false
                 if autoBuyThread then task.cancel(autoBuyThread) autoBuyThread = nil end
                 Rayfield:Notify({ Title = "Auto Buy", Content = "Auto buy stopped.", Duration = 3, Image = 4483362458 })
-            end
-        end,
-    })
-
-
-    MiscTab:CreateDivider()
-    MiscTab:CreateSection("⚗ Crafting")
-
-    local autoCraftGrailEnabled = false
-    local autoCraftGrailThread  = nil
-    local RequestGrailCraft = nil
-    pcall(function()
-        RequestGrailCraft = ReplicatedStorage
-            :WaitForChild("Remotes", 10)
-            :WaitForChild("RequestGrailCraft", 10)
-    end)
-
-    MiscTab:CreateToggle({
-        Name = "Auto Craft Divine Grail", CurrentValue = false,
-        Callback = function(val)
-            if val then
-                autoCraftGrailEnabled = true
-                autoCraftGrailThread = task.spawn(function()
-                    while autoCraftGrailEnabled do
-                        pcall(function()
-                            RequestGrailCraft:InvokeServer("DivineGrail", 1)
-                        end)
-                        task.wait(0.1)
-                    end
-                end)
-                Rayfield:Notify({ Title = "Auto Craft", Content = "Crafting Divine Grail!", Duration = 3, Image = 4483362458 })
-            else
-                autoCraftGrailEnabled = false
-                if autoCraftGrailThread then task.cancel(autoCraftGrailThread) autoCraftGrailThread = nil end
-                Rayfield:Notify({ Title = "Auto Craft", Content = "Divine Grail crafting stopped.", Duration = 3, Image = 4483362458 })
             end
         end,
     })
@@ -4779,18 +4331,6 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
         end,
     })
 
-    DGTab:CreateButton({
-        Name = "⚔ Join Boss Rush",
-        Callback = function()
-            if RequestDungeonPortal then
-                pcall(function() RequestDungeonPortal:FireServer("BossRush") end)
-                Rayfield:Notify({ Title = "Dungeon", Content = "Joining Boss Rush...", Duration = 3, Image = 4483362458 })
-            else
-                Rayfield:Notify({ Title = "Dungeon", Content = "Failed to join Boss Rush.", Duration = 3, Image = 4483362458 })
-            end
-        end,
-    })
-
     DGTab:CreateDivider()
 
     -- ── Section: Difficulty & Auto Replay ──
@@ -4835,7 +4375,7 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
     end
 
     local AutoReplayToggle = DGTab:CreateToggle({
-        Name = "🔁 Auto Replay Dungeon", CurrentValue = false,
+        Name = "🔁 Auto Replay Dungeon", CurrentValue = false, Flag = "AutoReplayToggle",
         Callback = function(val)
             if val then
                 autoReplayEnabled = true
@@ -4878,6 +4418,7 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
 
     local function startDungeonKill()
         if not dungeonKillEnabled then return end
+        if dungeonKillThread then task.cancel(dungeonKillThread) dungeonKillThread = nil end
         startNoclip()
         dungeonKillThread = task.spawn(function()
             while dungeonKillEnabled do
@@ -4919,7 +4460,7 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
     end
 
     local DungeonKillToggle = DGTab:CreateToggle({
-        Name = "Auto Kill Enemies", CurrentValue = false,
+        Name = "Auto Kill Enemies", CurrentValue = false, Flag = "DungeonKillToggle",
         Callback = function(val)
             if val then
                 equipWeapon()
@@ -4946,6 +4487,8 @@ elseif game.GameId == DUNGEON_GID or game.PlaceId == DUNGEON_PID then
             Rayfield:Notify({ Title = "Dungeon", Content = "All stopped.", Duration = 3, Image = 4483362458 })
         end,
     })
+
+    Rayfield:LoadConfiguration()
 
 
 else
